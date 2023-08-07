@@ -173,7 +173,13 @@ unsafe impl Send for SHA384 {}
 extern "C" {
     fn HMAC_CTX_new() -> *mut c_void;
     fn HMAC_CTX_reset(ctx: *mut c_void) -> c_int;
-    fn HMAC_Init_ex(ctx: *mut c_void, key: *const c_void, key_len: c_int, evp_md: *const c_void, _impl: *const c_void) -> c_int;
+    fn HMAC_Init_ex(
+        ctx: *mut c_void,
+        key: *const c_void,
+        key_len: c_int,
+        evp_md: *const c_void,
+        _impl: *const c_void,
+    ) -> c_int;
     fn HMAC_Update(ctx: *mut c_void, data: *const c_void, len: usize) -> c_int;
     fn HMAC_Final(ctx: *mut c_void, output: *mut c_void, output_len: *mut c_uint) -> c_int;
     fn HMAC_CTX_free(ctx: *mut c_void);
@@ -192,7 +198,10 @@ impl HMACSHA512 {
         unsafe {
             let hm = Self { ctx: HMAC_CTX_new(), evp_md: EVP_sha512() };
             assert!(!hm.ctx.is_null());
-            assert_ne!(HMAC_Init_ex(hm.ctx, key.as_ptr().cast(), key.len() as c_int, hm.evp_md, null()), 0);
+            assert_ne!(
+                HMAC_Init_ex(hm.ctx, key.as_ptr().cast(), key.len() as c_int, hm.evp_md, null()),
+                0
+            );
             hm
         }
     }
@@ -201,7 +210,10 @@ impl HMACSHA512 {
     pub fn reset(&mut self, key: &[u8]) {
         unsafe {
             assert_ne!(HMAC_CTX_reset(self.ctx), 0);
-            assert_ne!(HMAC_Init_ex(self.ctx, key.as_ptr().cast(), key.len() as c_int, self.evp_md, null()), 0);
+            assert_ne!(
+                HMAC_Init_ex(self.ctx, key.as_ptr().cast(), key.len() as c_int, self.evp_md, null()),
+                0
+            );
         }
     }
 
@@ -264,7 +276,10 @@ impl HMACSHA384 {
         unsafe {
             let hm = Self { ctx: HMAC_CTX_new(), evp_md: EVP_sha384() };
             assert!(!hm.ctx.is_null());
-            assert_ne!(HMAC_Init_ex(hm.ctx, key.as_ptr().cast(), key.len() as c_int, hm.evp_md, null()), 0);
+            assert_ne!(
+                HMAC_Init_ex(hm.ctx, key.as_ptr().cast(), key.len() as c_int, hm.evp_md, null()),
+                0
+            );
             hm
         }
     }
@@ -273,7 +288,10 @@ impl HMACSHA384 {
     pub fn reset(&mut self, key: &[u8]) {
         unsafe {
             assert_ne!(HMAC_CTX_reset(self.ctx), 0);
-            assert_ne!(HMAC_Init_ex(self.ctx, key.as_ptr().cast(), key.len() as c_int, self.evp_md, null()), 0);
+            assert_ne!(
+                HMAC_Init_ex(self.ctx, key.as_ptr().cast(), key.len() as c_int, self.evp_md, null()),
+                0
+            );
         }
     }
 

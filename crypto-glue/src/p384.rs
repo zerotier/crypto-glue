@@ -26,7 +26,13 @@ pub const P384_ECDSA_SIGNATURE_SIZE: usize = 96;
 pub const P384_ECDH_SHARED_SECRET_SIZE: usize = 48;
 
 extern "C" {
-    fn ECDH_compute_key(out: *mut u8, outlen: c_ulong, pub_key: *const ffi::EC_POINT, ecdh: *mut ffi::EC_KEY, kdf: *const c_void) -> c_int;
+    fn ECDH_compute_key(
+        out: *mut u8,
+        outlen: c_ulong,
+        pub_key: *const ffi::EC_POINT,
+        ecdh: *mut ffi::EC_KEY,
+        kdf: *const c_void,
+    ) -> c_int;
 }
 /// A NIST P-384 ECDH/ECDSA public key.
 pub struct P384PublicKey {
@@ -236,7 +242,10 @@ impl P384KeyPair {
             let mut b = [0_u8; P384_ECDSA_SIGNATURE_SIZE];
             // Read the signature's raw bytes out of OpenSSL.
             ffi::BN_bn2bin(r, b[(CAP - r_len)..CAP].as_mut_ptr());
-            ffi::BN_bn2bin(s, b[(P384_ECDSA_SIGNATURE_SIZE - s_len)..P384_ECDSA_SIGNATURE_SIZE].as_mut_ptr());
+            ffi::BN_bn2bin(
+                s,
+                b[(P384_ECDSA_SIGNATURE_SIZE - s_len)..P384_ECDSA_SIGNATURE_SIZE].as_mut_ptr(),
+            );
             ffi::ECDSA_SIG_free(sig);
             b
         }
@@ -328,7 +337,13 @@ impl OSSLKey {
         let bnc = OSSLBNC::new()?;
         let point = Point::new()?;
         // Ask OpenSSL to read the raw bytes into the OpenSSL object.
-        cvt(ffi::EC_POINT_oct2point(GROUP_P384.0, point.0, buffer.as_ptr(), buffer.len(), bnc.0))?;
+        cvt(ffi::EC_POINT_oct2point(
+            GROUP_P384.0,
+            point.0,
+            buffer.as_ptr(),
+            buffer.len(),
+            bnc.0,
+        ))?;
         // Check if the object is valid.
         if cvt_n(ffi::EC_POINT_is_on_curve(GROUP_P384.0, point.0, bnc.0))? == 1 {
             // Create an OpenSSL key and guarantee to the caller that the key was initialized with a

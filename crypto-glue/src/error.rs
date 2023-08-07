@@ -148,7 +148,11 @@ impl Error {
             let data = match self.data {
                 Some(Cow::Borrowed(data)) => Some((data.as_ptr() as *mut c_char, 0)),
                 Some(Cow::Owned(ref data)) => {
-                    let ptr = ffi::CRYPTO_malloc((data.len() + 1) as _, concat!(file!(), "\0").as_ptr() as _, line!() as _) as *mut c_char;
+                    let ptr = ffi::CRYPTO_malloc(
+                        (data.len() + 1) as _,
+                        concat!(file!(), "\0").as_ptr() as _,
+                        line!() as _,
+                    ) as *mut c_char;
                     if ptr.is_null() {
                         None
                     } else {
@@ -169,7 +173,11 @@ impl Error {
     fn put_error(&self) {
         unsafe {
             ffi::ERR_new();
-            ffi::ERR_set_debug(self.file.as_ptr(), self.line, self.func.as_ref().map_or(ptr::null(), |s| s.as_ptr()));
+            ffi::ERR_set_debug(
+                self.file.as_ptr(),
+                self.line,
+                self.func.as_ref().map_or(ptr::null(), |s| s.as_ptr()),
+            );
             ffi::ERR_set_error(ffi::ERR_GET_LIB(self.code), ffi::ERR_GET_REASON(self.code), ptr::null());
         }
     }

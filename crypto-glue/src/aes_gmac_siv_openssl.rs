@@ -144,7 +144,9 @@ impl AesGmacSiv {
         self.tmp[12] &= 0x7f;
 
         unsafe {
-            self.ctr.cipher_init::<true>(ptr::null_mut(), ptr::null_mut(), self.tmp.as_ptr()).unwrap();
+            self.ctr
+                .cipher_init::<true>(ptr::null_mut(), ptr::null_mut(), self.tmp.as_ptr())
+                .unwrap();
         }
     }
 
@@ -196,7 +198,9 @@ impl AesGmacSiv {
         tag_tmp[8..12].fill(0);
 
         unsafe {
-            self.gmac.cipher_init::<true>(ptr::null_mut(), ptr::null_mut(), tag_tmp.as_ptr()).unwrap();
+            self.gmac
+                .cipher_init::<true>(ptr::null_mut(), ptr::null_mut(), tag_tmp.as_ptr())
+                .unwrap();
         }
     }
 

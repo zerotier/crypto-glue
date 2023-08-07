@@ -15,12 +15,34 @@ extern "C" {
     fn EVP_CIPHER_CTX_free(ctx: *mut ffi::EVP_CIPHER_CTX);
     fn EVP_CIPHER_CTX_new() -> *mut ffi::EVP_CIPHER_CTX;
 
-    fn EVP_EncryptInit_ex(ctx: *mut ffi::EVP_CIPHER_CTX, cipher: *const ffi::EVP_CIPHER, engine: *mut c_void, key: *const u8, iv: *const u8)
-        -> c_int;
-    fn EVP_DecryptInit_ex(ctx: *mut ffi::EVP_CIPHER_CTX, cipher: *const ffi::EVP_CIPHER, engine: *mut c_void, key: *const u8, iv: *const u8)
-        -> c_int;
-    fn EVP_EncryptUpdate(ctx: *mut ffi::EVP_CIPHER_CTX, out: *mut u8, outl: *mut c_int, in_: *const u8, inl: c_int) -> c_int;
-    fn EVP_DecryptUpdate(ctx: *mut ffi::EVP_CIPHER_CTX, out: *mut u8, outl: *mut c_int, in_: *const u8, inl: c_int) -> c_int;
+    fn EVP_EncryptInit_ex(
+        ctx: *mut ffi::EVP_CIPHER_CTX,
+        cipher: *const ffi::EVP_CIPHER,
+        engine: *mut c_void,
+        key: *const u8,
+        iv: *const u8,
+    ) -> c_int;
+    fn EVP_DecryptInit_ex(
+        ctx: *mut ffi::EVP_CIPHER_CTX,
+        cipher: *const ffi::EVP_CIPHER,
+        engine: *mut c_void,
+        key: *const u8,
+        iv: *const u8,
+    ) -> c_int;
+    fn EVP_EncryptUpdate(
+        ctx: *mut ffi::EVP_CIPHER_CTX,
+        out: *mut u8,
+        outl: *mut c_int,
+        in_: *const u8,
+        inl: c_int,
+    ) -> c_int;
+    fn EVP_DecryptUpdate(
+        ctx: *mut ffi::EVP_CIPHER_CTX,
+        out: *mut u8,
+        outl: *mut c_int,
+        in_: *const u8,
+        inl: c_int,
+    ) -> c_int;
     fn EVP_EncryptFinal_ex(ctx: *mut ffi::EVP_CIPHER_CTX, out: *mut u8, outl: *mut c_int) -> c_int;
     fn EVP_DecryptFinal_ex(ctx: *mut ffi::EVP_CIPHER_CTX, out: *mut u8, outl: *mut c_int) -> c_int;
     fn EVP_CIPHER_CTX_ctrl(ctx: *mut ffi::EVP_CIPHER_CTX, type_: c_int, arg: c_int, ptr: *mut c_void) -> c_int;
@@ -48,7 +70,12 @@ impl CipherCtx {
 impl CipherCtx {
     /// Initializes the context for encryption or decryption.
     /// All pointer fields can be null, in which case the corresponding field in the context is not updated.
-    pub unsafe fn cipher_init<const ENCRYPT: bool>(&self, t: *const ffi::EVP_CIPHER, key: *const u8, iv: *const u8) -> Result<(), ErrorStack> {
+    pub unsafe fn cipher_init<const ENCRYPT: bool>(
+        &self,
+        t: *const ffi::EVP_CIPHER,
+        key: *const u8,
+        iv: *const u8,
+    ) -> Result<(), ErrorStack> {
         let evp_f = if ENCRYPT {
             EVP_EncryptInit_ex
         } else {
@@ -84,7 +111,13 @@ impl CipherCtx {
 
         let mut outlen = 0;
 
-        cvt(evp_f(self.0.as_ptr(), output, &mut outlen, input.as_ptr(), input.len() as c_int))?;
+        cvt(evp_f(
+            self.0.as_ptr(),
+            output,
+            &mut outlen,
+            input.as_ptr(),
+            input.len() as c_int,
+        ))?;
 
         Ok(())
     }
@@ -157,7 +190,8 @@ mod test {
         let key = [1u8; 16];
         let ctx = CipherCtx::new().unwrap();
         unsafe {
-            ctx.cipher_init::<true>(ffi::EVP_aes_128_ecb(), key.as_ptr(), ptr::null()).unwrap();
+            ctx.cipher_init::<true>(ffi::EVP_aes_128_ecb(), key.as_ptr(), ptr::null())
+                .unwrap();
             ffi::EVP_CIPHER_CTX_set_padding(ctx.as_ptr(), 0);
             assert_eq!(ffi::EVP_CIPHER_CTX_get_block_size(ctx.as_ptr()) as usize, 16);
 
@@ -166,7 +200,8 @@ mod test {
             let p = val.as_mut_ptr();
 
             ctx.update::<true>(&val, p).unwrap();
-            ctx.cipher_init::<false>(ptr::null(), key.as_ptr(), ptr::null()).unwrap();
+            ctx.cipher_init::<false>(ptr::null(), key.as_ptr(), ptr::null())
+                .unwrap();
             ctx.update::<false>(&val, p).unwrap();
 
             assert_eq!(val, origin);

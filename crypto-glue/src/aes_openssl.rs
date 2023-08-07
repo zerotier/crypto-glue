@@ -41,7 +41,9 @@ impl<const ENCRYPT: bool> AesGcm<ENCRYPT> {
     /// `iv` must be exactly 12 bytes in length, because that is what Aes supports.
     fn reset_init_gcm(&mut self, iv: &[u8]) {
         unsafe {
-            self.0.cipher_init::<ENCRYPT>(ptr::null(), ptr::null(), iv.as_ptr()).unwrap();
+            self.0
+                .cipher_init::<ENCRYPT>(ptr::null(), ptr::null(), iv.as_ptr())
+                .unwrap();
         }
     }
 
@@ -145,7 +147,8 @@ impl<const ENCRYPT: bool> Aes<ENCRYPT> {
     fn reset(&self, key: &[u8; aes::AES_256_KEY_SIZE]) {
         let ctx = self.0.lock().unwrap();
         unsafe {
-            ctx.cipher_init::<ENCRYPT>(ptr::null(), key.as_ptr(), ptr::null()).unwrap();
+            ctx.cipher_init::<ENCRYPT>(ptr::null(), key.as_ptr(), ptr::null())
+                .unwrap();
         }
     }
 }

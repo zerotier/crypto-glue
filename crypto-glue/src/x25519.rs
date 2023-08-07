@@ -159,7 +159,10 @@ impl Ed25519KeyPair {
 
 impl Clone for Ed25519KeyPair {
     fn clone(&self) -> Self {
-        Self(ed25519_dalek::Keypair::from_bytes(&self.0.to_bytes()).unwrap(), self.1.clone())
+        Self(
+            ed25519_dalek::Keypair::from_bytes(&self.0.to_bytes()).unwrap(),
+            self.1.clone(),
+        )
     }
 }
 
@@ -169,7 +172,8 @@ pub fn ed25519_verify(public_key: &[u8], signature: &[u8], msg: &[u8]) -> bool {
             let mut h = ed25519_dalek::Sha512::new();
             let _ = h.write_all(msg);
             let sig: [u8; 64] = signature[0..64].try_into().unwrap();
-            pk.verify_prehashed(h, None, &ed25519_dalek::Signature::from(sig)).is_ok()
+            pk.verify_prehashed(h, None, &ed25519_dalek::Signature::from(sig))
+                .is_ok()
         })
     } else {
         false

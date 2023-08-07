@@ -59,8 +59,18 @@ extern "C" {
     fn CCCryptorRelease(cryptor_ref: *mut c_void) -> i32;
     fn CCCryptorGCMSetIV(cryptor_ref: *mut c_void, iv: *const c_void, iv_len: usize) -> i32;
     fn CCCryptorGCMAddAAD(cryptor_ref: *mut c_void, aad: *const c_void, len: usize) -> i32;
-    fn CCCryptorGCMEncrypt(cryptor_ref: *mut c_void, data_in: *const c_void, data_in_len: usize, data_out: *mut c_void) -> i32;
-    fn CCCryptorGCMDecrypt(cryptor_ref: *mut c_void, data_in: *const c_void, data_in_len: usize, data_out: *mut c_void) -> i32;
+    fn CCCryptorGCMEncrypt(
+        cryptor_ref: *mut c_void,
+        data_in: *const c_void,
+        data_in_len: usize,
+        data_out: *mut c_void,
+    ) -> i32;
+    fn CCCryptorGCMDecrypt(
+        cryptor_ref: *mut c_void,
+        data_in: *const c_void,
+        data_in_len: usize,
+        data_out: *mut c_void,
+    ) -> i32;
     fn CCCryptorGCMFinal(cryptor_ref: *mut c_void, tag: *mut c_void, tag_len: *mut usize) -> i32;
     fn CCCryptorGCMReset(cryptor_ref: *mut c_void) -> i32;
 }
@@ -141,9 +151,15 @@ impl<const ENCRYPT: bool> AesGcm<ENCRYPT> {
     pub fn crypt_in_place(&mut self, data: &mut [u8]) {
         unsafe {
             if ENCRYPT {
-                assert_eq!(CCCryptorGCMEncrypt(self.0, data.as_ptr().cast(), data.len(), data.as_mut_ptr().cast()), 0);
+                assert_eq!(
+                    CCCryptorGCMEncrypt(self.0, data.as_ptr().cast(), data.len(), data.as_mut_ptr().cast()),
+                    0
+                );
             } else {
-                assert_eq!(CCCryptorGCMDecrypt(self.0, data.as_ptr().cast(), data.len(), data.as_mut_ptr().cast()), 0);
+                assert_eq!(
+                    CCCryptorGCMDecrypt(self.0, data.as_ptr().cast(), data.len(), data.as_mut_ptr().cast()),
+                    0
+                );
             }
         }
     }

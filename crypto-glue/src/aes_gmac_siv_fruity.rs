@@ -456,7 +456,11 @@ impl AesGmacSiv {
                 ciphertext_to_plaintext.len(),
                 &mut data_out_written,
             );
-            CCCryptorGCMAddAAD(self.gmac, ciphertext_to_plaintext.as_ptr().cast(), ciphertext_to_plaintext.len());
+            CCCryptorGCMAddAAD(
+                self.gmac,
+                ciphertext_to_plaintext.as_ptr().cast(),
+                ciphertext_to_plaintext.len(),
+            );
         }
     }
 
