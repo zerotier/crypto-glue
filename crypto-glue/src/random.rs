@@ -148,6 +148,8 @@ pub fn next_u64_xorshift() -> u64 {
 }
 
 /// Generate a random 32-bit number (not cryptographically secure).
+/// Internally this generates a 64-bit number and uses the top-most bits,
+/// since they are slightlyhigher quality randomness.
 #[inline]
 pub fn next_u32_xorshift() -> u32 {
     GLOBAL_XORSHIFT.lock().unwrap().next_u32()
