@@ -9,52 +9,43 @@
 use std::sync::Mutex;
 
 use libc::c_int;
+use once_cell::unsync::Lazy;
+use rand_xoshiro::rand_core::{SeedableRng, RngCore, Error, CryptoRng};
 
-use crate::error::{cvt, ErrorStack};
-
-use zssp::crypto::rand_core;
+use crate::error::cvt;
 
 /// Fill buffer with cryptographically strong pseudo-random bytes.
-fn rand_bytes(buf: &mut [u8]) -> Result<(), ErrorStack> {
+#[inline]
+pub fn fill_bytes_secure(dest: &mut [u8]) {
     unsafe {
-        assert!(buf.len() <= c_int::max_value() as usize);
-        cvt(ffi::RAND_bytes(buf.as_mut_ptr(), buf.len() as c_int)).map(|_| ())
+        debug_assert!(dest.len() <= c_int::max_value() as usize);
+        cvt(ffi::RAND_bytes(dest.as_mut_ptr(), dest.len() as c_int)).unwrap();
     }
 }
 
+
 pub fn next_u32_secure() -> u32 {
-    unsafe {
-        let mut tmp = [0u32; 1];
-        rand_bytes(&mut *(tmp.as_mut_ptr().cast::<[u8; 4]>())).unwrap();
-        tmp[0]
-    }
+    let mut tmp = [0u8; 4];
+    fill_bytes_secure(&mut tmp);
+    u32::from_ne_bytes(tmp)
 }
 
 pub fn next_u64_secure() -> u64 {
-    unsafe {
-        let mut tmp = [0u64; 1];
-        rand_bytes(&mut *(tmp.as_mut_ptr().cast::<[u8; 8]>())).unwrap();
-        tmp[0]
-    }
+    let mut tmp = [0u8; 8];
+    fill_bytes_secure(&mut tmp);
+    u64::from_ne_bytes(tmp)
 }
 
 pub fn next_u128_secure() -> u128 {
-    unsafe {
-        let mut tmp = [0u128; 1];
-        rand_bytes(&mut *(tmp.as_mut_ptr().cast::<[u8; 16]>())).unwrap();
-        tmp[0]
-    }
-}
-
-#[inline(always)]
-pub fn fill_bytes_secure(dest: &mut [u8]) {
-    rand_bytes(dest).unwrap();
+    let mut tmp = [0u8; 16];
+    fill_bytes_secure(&mut tmp);
+    u128::from_ne_bytes(tmp)
 }
 
 #[inline(always)]
 pub fn get_bytes_secure<const COUNT: usize>() -> [u8; COUNT] {
     let mut tmp = [0u8; COUNT];
-    rand_bytes(&mut tmp).unwrap();
+    fill_bytes_secure(&mut tmp);
     tmp
 }
 
@@ -74,7 +65,7 @@ impl SecureRandom {
     }
 }
 
-impl rand_core::RngCore for SecureRandom {
+impl RngCore for SecureRandom {
     #[inline(always)]
     fn next_u32(&mut self) -> u32 {
         next_u32_secure()
@@ -91,7 +82,7 @@ impl rand_core::RngCore for SecureRandom {
     }
 
     #[inline(always)]
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
         fill_bytes_secure(dest);
         Ok(())
     }
@@ -121,69 +112,43 @@ impl rand_core_051::RngCore for SecureRandom {
     }
 }
 
-impl rand_core::CryptoRng for SecureRandom {}
-
+impl CryptoRng for SecureRandom {}
 impl rand_core_051::CryptoRng for SecureRandom {}
-
 unsafe impl Sync for SecureRandom {}
 unsafe impl Send for SecureRandom {}
 
-/// xorshift* by Marsaglia.
-/// Simple and deterministic which makes it good for testing.
-pub struct Xorshift64Star(pub u64);
-impl Xorshift64Star {
-    #[inline(always)]
-    pub fn new(seed: u64) -> Self {
-        Self(seed)
-    }
+/// This crate contains the most modern, feature rich and high-quality variants of the Xorshift family of random
+/// number generators.
+/// While they are not cryptographically secure, they are also faster and several times harder to
+/// reverse than Xorshift64, so I think we should prefer them.
+/// I read the source of this crate and it is low level and efficient.
+pub use rand_xoshiro;
+/// Xoshiro256** according to my benchmarking is surprisingly twice as fast as vanilla
+/// Xorshift64 because there are fewer dependency chains in Xoshiro256** compared to Xorshift64.
+pub use rand_xoshiro::Xoshiro256StarStar;
+
+/// A global Xoshiro256** wrapped in a mutex and a OnceCell.
+/// Unsync OnceCell is just a wrapped `Option<>` and is very fast.
+/// Also OnceCell is about to be stabilized into Rust std.
+pub static GLOBAL_XORSHIFT: Mutex<Lazy<Xoshiro256StarStar>> = Mutex::new(Lazy::new(|| Xoshiro256StarStar::from_rng(SecureRandom).unwrap()));
+
+/// Quickly creates a new Xoshiro256StarStar state that is randomly seeded and fully owned by the
+/// caller (does not require dereferencing and locking a global variable).
+#[inline]
+pub fn new_xorshift_rng() -> Xoshiro256StarStar {
+    let mut state = GLOBAL_XORSHIFT.lock().unwrap();
+    let ret = state.clone();
+    state.jump();
+    ret
+}
+/// Generate a random 64-bit number (not cryptographically secure).
+#[inline]
+pub fn next_u64_xorshift() -> u64 {
+    GLOBAL_XORSHIFT.lock().unwrap().next_u64()
 }
 
-impl rand_core::RngCore for Xorshift64Star {
-    #[inline(always)]
-    fn next_u32(&mut self) -> u32 {
-        self.next_u64() as u32
-    }
-    #[inline(always)]
-    fn next_u64(&mut self) -> u64 {
-        self.0 ^= self.0.wrapping_shr(12);
-        self.0 ^= self.0.wrapping_shl(25);
-        self.0 ^= self.0.wrapping_shr(27);
-        self.0.wrapping_mul(0x2545F4914F6CDD1Du64)
-    }
-
-    #[inline(always)]
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        // This could be faster with manual unrolling
-        let mut r = self.next_u64().to_ne_bytes();
-        let mut n = 0;
-        for byte in dest {
-            *byte = r[n];
-            n += 1;
-            if n >= 8 {
-                r = self.next_u64().to_ne_bytes();
-                n = 0
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-
-/// Get a non-cryptographic random number.
-pub fn xorshift64_random() -> u64 {
-    static XORSHIFT64_STATE: Mutex<u64> = Mutex::new(0);
-    let mut x = XORSHIFT64_STATE.lock().unwrap();
-    while *x == 0 {
-        *x = next_u64_secure();
-    }
-    *x ^= x.wrapping_shr(12);
-    *x ^= x.wrapping_shl(25);
-    *x ^= x.wrapping_shr(27);
-    let r = *x;
-    drop(x);
-    r.wrapping_mul(0x2545F4914F6CDD1Du64)
+/// Generate a random 32-bit number (not cryptographically secure).
+#[inline]
+pub fn next_u32_xorshift() -> u32 {
+    GLOBAL_XORSHIFT.lock().unwrap().next_u32()
 }

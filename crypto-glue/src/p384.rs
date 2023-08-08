@@ -11,13 +11,12 @@ use std::os::raw::{c_int, c_ulong, c_void};
 use std::sync::Mutex;
 use std::{mem, ptr};
 
-use lazy_static::lazy_static;
-
 use crate::error::{cvt, cvt_n, cvt_p, ErrorStack};
 use crate::hash::SHA384;
 use crate::secret::Secret;
 use crate::secure_eq;
 
+use once_cell::sync::Lazy;
 use zssp::crypto::p384;
 
 pub const P384_PUBLIC_KEY_SIZE: usize = 49;
@@ -384,9 +383,7 @@ impl OSSLGroup {
 }
 unsafe impl Send for OSSLGroup {}
 unsafe impl Sync for OSSLGroup {}
-lazy_static! {
-    static ref GROUP_P384: OSSLGroup = unsafe { OSSLGroup::p384() };
-}
+static GROUP_P384: Lazy<OSSLGroup> = Lazy::new(||unsafe { OSSLGroup::p384() });
 
 impl p384::P384PublicKey for P384PublicKey {
     fn from_bytes(raw_key: &[u8; p384::P384_PUBLIC_KEY_SIZE]) -> Option<Self> {
