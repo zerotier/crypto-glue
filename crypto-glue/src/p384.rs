@@ -376,14 +376,10 @@ impl Drop for OSSLKey {
 /// OpenSSL wrapper for a EC_GROUP that is used to tell rust that an OpenSSL EC_GROUP is threadsafe.
 /// We only ever instantiate one of these with lazy_static. It is never freed.
 struct OSSLGroup(*mut ffi::EC_GROUP);
-impl OSSLGroup {
-    unsafe fn p384() -> Self {
-        Self(cvt_p(ffi::EC_GROUP_new_by_curve_name(ffi::NID_secp384r1)).unwrap())
-    }
-}
 unsafe impl Send for OSSLGroup {}
 unsafe impl Sync for OSSLGroup {}
-static GROUP_P384: Lazy<OSSLGroup> = Lazy::new(||unsafe { OSSLGroup::p384() });
+static GROUP_P384: Lazy<OSSLGroup> =
+    Lazy::new(|| unsafe { OSSLGroup(cvt_p(ffi::EC_GROUP_new_by_curve_name(ffi::NID_secp384r1)).unwrap()) });
 
 impl p384::P384PublicKey for P384PublicKey {
     fn from_bytes(raw_key: &[u8; p384::P384_PUBLIC_KEY_SIZE]) -> Option<Self> {

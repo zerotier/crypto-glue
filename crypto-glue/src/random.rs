@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use libc::c_int;
 use once_cell::unsync::Lazy;
-use rand_xoshiro::rand_core::{SeedableRng, RngCore, Error, CryptoRng};
+use rand_xoshiro::rand_core::{CryptoRng, Error, RngCore, SeedableRng};
 
 use crate::error::cvt;
 
@@ -22,7 +22,6 @@ pub fn fill_bytes_secure(dest: &mut [u8]) {
         cvt(ffi::RAND_bytes(dest.as_mut_ptr(), dest.len() as c_int)).unwrap();
     }
 }
-
 
 pub fn next_u32_secure() -> u32 {
     let mut tmp = [0u8; 4];
@@ -130,7 +129,8 @@ pub use rand_xoshiro::Xoshiro256StarStar;
 /// A global Xoshiro256** wrapped in a mutex and a OnceCell.
 /// Unsync OnceCell is just a wrapped `Option<>` and is very fast.
 /// Also OnceCell is about to be stabilized into Rust std.
-pub static GLOBAL_XORSHIFT: Mutex<Lazy<Xoshiro256StarStar>> = Mutex::new(Lazy::new(|| Xoshiro256StarStar::from_rng(SecureRandom).unwrap()));
+pub static GLOBAL_XORSHIFT: Mutex<Lazy<Xoshiro256StarStar>> =
+    Mutex::new(Lazy::new(|| Xoshiro256StarStar::from_rng(SecureRandom).unwrap()));
 
 /// Quickly creates a new Xoshiro256StarStar state that is randomly seeded and fully owned by the
 /// caller (does not require dereferencing and locking a global variable).
