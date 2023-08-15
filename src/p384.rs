@@ -11,7 +11,7 @@ use std::os::raw::{c_int, c_ulong, c_void};
 use std::sync::Mutex;
 use std::{mem, ptr};
 
-use crate::hash::SHA384;
+use crate::hash::{SHA384, SHA384_HASH_SIZE};
 use crate::random::rand_core::{CryptoRng, RngCore};
 use crate::secure_eq;
 
@@ -70,6 +70,19 @@ pub struct P384PublicKey {
 unsafe impl Send for P384PublicKey {}
 unsafe impl Sync for P384PublicKey {}
 
+fn create_digest(domain: &[u8], data: &[&[u8]]) -> [u8; SHA384_HASH_SIZE] {
+    debug_assert!(domain.len() <= u16::MAX as usize);
+    let mut hasher = SHA384::new();
+    if domain.len() > 0 {
+        hasher.update(&(domain.len() as u16).to_be_bytes());
+        hasher.update(domain);
+    }
+    for msg in data {
+        hasher.update(msg);
+    }
+    hasher.finish()
+}
+
 impl P384PublicKey {
     /// Create a p384 public key from raw bytes.
     /// `buffer` must have length `P384_PUBLIC_KEY_SIZE`.
@@ -91,7 +104,21 @@ impl P384PublicKey {
     }
 
     /// Verify the ECDSA/SHA384 signature.
-    pub fn verify(&self, msg: &[u8], signature: &[u8; P384_ECDSA_SIGNATURE_SIZE]) -> bool {
+    ///
+    /// Domain strings are prepended to a message with their length and then signed along with the
+    /// entire message.
+    /// This function will prepend nothing to the message and instead verify the message alone.
+    pub fn verify_raw(&self, message: &[u8], signature: &[u8; P384_ECDSA_SIGNATURE_SIZE]) -> bool {
+        self.verify_all(&[], &[message], signature)
+    }
+    /// Verify the ECDSA/SHA384 signature for a message with a specific domain.
+    pub fn verify(&self, domain: &[u8], message: &[u8], signature: &[u8; P384_ECDSA_SIGNATURE_SIZE]) -> bool {
+        self.verify_all(domain, &[message], signature)
+    }
+    /// Verify the ECDSA/SHA384 signature for a message with a specific domain.
+    /// The signature is assumed to be for the message equal to all slices of `data`
+    /// concatenated in order.
+    pub fn verify_all(&self, domain: &[u8], data: &[&[u8]], signature: &[u8; P384_ECDSA_SIGNATURE_SIZE]) -> bool {
         const CAP: usize = P384_ECDSA_SIGNATURE_SIZE / 2;
         unsafe {
             // Write the raw bytes into OpenSSL.
@@ -107,11 +134,11 @@ impl P384PublicKey {
                         mem::forget(r);
                         mem::forget(s);
                         // Digest the message.
-                        let data = &SHA384::hash(msg);
+                        let digest = create_digest(domain, data);
 
                         let key = self.key.lock().unwrap();
                         // Actually perform the verification.
-                        ffi::ECDSA_do_verify(data.as_ptr(), data.len() as c_int, sig, key.0) == 1
+                        ffi::ECDSA_do_verify(digest.as_ptr(), digest.len() as c_int, sig, key.0) == 1
                     } else {
                         false
                     };
@@ -229,14 +256,40 @@ impl P384KeyPair {
         }
     }
 
+    /// Sign a message with ECDSA/SHA384 without any domain restriction.
+    ///
+    /// Domain strings are prepended to a message with their length and then signed along with the
+    /// entire message.
+    /// This function will prepend nothing to the message and instead sign the message alone.
+    /// It is not recommended to use this function unless this specific key was domain restricted
+    /// upon generation.
+    pub fn sign_raw(&self, message: &[u8]) -> [u8; P384_ECDSA_SIGNATURE_SIZE] {
+        self.sign_all(&[], &[message])
+    }
     /// Sign a message with ECDSA/SHA384.
-    pub fn sign(&self, msg: &[u8]) -> [u8; P384_ECDSA_SIGNATURE_SIZE] {
-        // Digest the message.
-        let data = &SHA384::hash(msg);
+    ///
+    /// The signature will only be valid when verified with the same "domain".
+    /// Restricting signatures to domains reduces the risk of a valid signature being used for a
+    /// purpose the signer did not intend.
+    ///
+    /// A good domain string statically specifies what a signature is "for", and is strictly unique
+    /// for each different thing a signature is "used for".
+    pub fn sign(&self, domain: &[u8], message: &[u8]) -> [u8; P384_ECDSA_SIGNATURE_SIZE] {
+        self.sign_all(domain, &[message])
+    }
+    /// Sign a message with ECDSA/SHA384.
+    /// The produced signature will be for the message equal to all slices of `data`
+    /// concatenated in order.
+    ///
+    /// The signature will only be valid when verified with the same "domain".
+    /// Restricting signatures to domains reduces the risk of a valid signature being used for a
+    /// purpose the signer did not intend.
+    pub fn sign_all(&self, domain: &[u8], data: &[&[u8]]) -> [u8; P384_ECDSA_SIGNATURE_SIZE] {
+        let digest = create_digest(domain, data);
         unsafe {
             let keypair = self.pair.lock().unwrap();
             // Actually create the signature with ECDSA.
-            let sig = check_ptr(ffi::ECDSA_do_sign(data.as_ptr(), data.len() as c_int, keypair.0));
+            let sig = check_ptr(ffi::ECDSA_do_sign(digest.as_ptr(), digest.len() as c_int, keypair.0));
             drop(keypair);
             let sig = sig.unwrap();
 
@@ -436,11 +489,11 @@ mod tests {
         let kp_pub = kp.to_public_key();
         let kp2_pub = kp2.to_public_key();
 
-        let sig = kp.sign(&[0_u8; 16]);
-        if !kp_pub.verify(&[0_u8; 16], &sig) {
+        let sig = kp.sign_raw(&[0_u8; 16]);
+        if !kp_pub.verify_raw(&[0_u8; 16], &sig) {
             panic!("ECDSA verify failed");
         }
-        if kp_pub.verify(&[1_u8; 16], &sig) {
+        if kp_pub.verify_raw(&[1_u8; 16], &sig) {
             panic!("ECDSA verify succeeded for incorrect message");
         }
 
@@ -464,8 +517,8 @@ mod tests {
         assert_eq!(pkb, pkb3);
         assert_eq!(skb, skb3);
 
-        let sig = kp3.sign(&[3_u8; 16]);
-        if !kp_pub.verify(&[3_u8; 16], &sig) {
+        let sig = kp3.sign_raw(&[3_u8; 16]);
+        if !kp_pub.verify_raw(&[3_u8; 16], &sig) {
             panic!("ECDSA verify failed (from key reconstructed from bytes)");
         }
     }
@@ -478,11 +531,11 @@ mod tests {
         let kp_pub = kp.to_public_key();
         let kp2_pub = kp2.to_public_key();
 
-        let sig = kp_fake.sign(&[0_u8; 16]);
-        if kp_pub.verify(&[0_u8; 16], &sig) {
+        let sig = kp_fake.sign_raw(&[0_u8; 16]);
+        if kp_pub.verify_raw(&[0_u8; 16], &sig) {
             panic!("ECDSA verify succeeded");
         }
-        if kp_pub.verify(&[1_u8; 16], &sig) {
+        if kp_pub.verify_raw(&[1_u8; 16], &sig) {
             panic!("ECDSA verify succeeded for incorrect message");
         }
 
@@ -509,7 +562,7 @@ mod tests {
         sigs[1][0] = 1;
         sigs[2][95] = 1;
         for sig in &sigs {
-            if kp_pub.verify(&[0_u8; 16], sig) {
+            if kp_pub.verify_raw(&[0_u8; 16], sig) {
                 panic!("ECDSA verify succeeded on fake sig");
             }
         }

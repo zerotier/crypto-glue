@@ -8,8 +8,7 @@
 
 use std::convert::TryInto;
 
-use ed25519_dalek::{Digest, SigningKey, VerifyingKey};
-use zssp::crypto::zeroize::Zeroizing;
+use ed25519_dalek::{Digest, SigningKey};
 
 use crate::random::SecureRandom;
 
