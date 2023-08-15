@@ -8,7 +8,7 @@
 
 use std::convert::TryInto;
 
-use ed25519_dalek::Digest;
+use ed25519_dalek::{Digest, SigningKey, VerifyingKey};
 use zssp::crypto::zeroize::Zeroizing;
 
 use crate::random::SecureRandom;
@@ -85,12 +85,12 @@ impl X25519KeyPair {
 
 /// Ed25519 key pair for EDDSA signatures.
 #[derive(Clone)]
-pub struct Ed25519KeyPair(ed25519_dalek::SigningKey);
+pub struct Ed25519KeyPair(SigningKey);
 
 impl Ed25519KeyPair {
     #[must_use]
     pub fn generate() -> Ed25519KeyPair {
-        let kp = ed25519_dalek::SigningKey::generate(&mut SecureRandom);
+        let kp = SigningKey::generate(&mut SecureRandom);
         Ed25519KeyPair(kp)
     }
 
@@ -98,11 +98,12 @@ impl Ed25519KeyPair {
         public_bytes: &[u8; ED25519_PUBLIC_KEY_SIZE],
         secret_bytes: &[u8; ED25519_SECRET_KEY_SIZE],
     ) -> Option<Ed25519KeyPair> {
-        let mut buf = Zeroizing::new([0u8; { ED25519_PUBLIC_KEY_SIZE + ED25519_SECRET_KEY_SIZE }]);
-        buf[..ED25519_PUBLIC_KEY_SIZE].copy_from_slice(public_bytes);
-        buf[ED25519_PUBLIC_KEY_SIZE..].copy_from_slice(secret_bytes);
-        let keypair = ed25519_dalek::SigningKey::from_keypair_bytes(&buf).ok()?;
-        Some(Ed25519KeyPair(keypair))
+        let key = Ed25519KeyPair(SigningKey::try_from(secret_bytes).ok()?);
+
+        if &key.public_bytes() != public_bytes {
+            return None;
+        }
+        Some(key)
     }
 
     #[inline(always)]
