@@ -18,13 +18,15 @@ pub mod salsa;
 pub mod typestate;
 pub mod x25519;
 
+// TODO: Bring back the faster Apple API implementations.
+
 pub mod aes_openssl;
 pub use aes_openssl as aes;
 
 pub mod aes_gmac_siv_openssl;
 pub use aes_gmac_siv_openssl as aes_gmac_siv;
 
-/// Dependency re-exports
+/// Dependency re-export
 pub use zssp;
 
 use ctor::ctor;
