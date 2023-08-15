@@ -11,18 +11,45 @@ use std::os::raw::{c_int, c_ulong, c_void};
 use std::sync::Mutex;
 use std::{mem, ptr};
 
-use crate::error::{cvt, cvt_n, cvt_p, ErrorStack};
+//use crate::error::{cvt, cvt_n, cvt_p, ErrorStack};
 use crate::hash::SHA384;
-use crate::secret::Secret;
 use crate::secure_eq;
 
 use once_cell::sync::Lazy;
-use zssp::crypto::p384;
+use rand_xoshiro::rand_core::{CryptoRng, RngCore};
+use zssp::crypto_impl::openssl_sys as ffi;
 
 pub const P384_PUBLIC_KEY_SIZE: usize = 49;
 pub const P384_SECRET_KEY_SIZE: usize = 48;
 pub const P384_ECDSA_SIGNATURE_SIZE: usize = 96;
 pub const P384_ECDH_SHARED_SECRET_SIZE: usize = 48;
+
+#[inline]
+pub fn check_ptr<T>(r: *mut T) -> Result<*mut T, ()> {
+    if r.is_null() {
+        Err(())
+    } else {
+        Ok(r)
+    }
+}
+
+#[inline]
+pub fn check_gtz(r: c_int) -> Result<c_int, ()> {
+    if r <= 0 {
+        Err(())
+    } else {
+        Ok(r)
+    }
+}
+
+#[inline]
+pub fn check_gteqz(r: c_int) -> Result<c_int, ()> {
+    if r < 0 {
+        Err(())
+    } else {
+        Ok(r)
+    }
+}
 
 extern "C" {
     fn ECDH_compute_key(
@@ -74,7 +101,7 @@ impl P384PublicKey {
                 let s = OSSLBN::from_slice(&signature[CAP..]);
                 if let (Ok(r), Ok(s)) = (r, s) {
                     // Create the OpenSSL object that actually supports verification.
-                    if let Ok(sig) = cvt_p(ffi::ECDSA_SIG_new()) {
+                    if let Ok(sig) = check_ptr(ffi::ECDSA_SIG_new()) {
                         let is_valid = if ffi::ECDSA_SIG_set0(sig, r.0, s.0) == 1 {
                             // For some reason this one random function, `ECDSA_SIG_set0`, takes
                             // ownership of its parameters. I've double checked and it is the only one
@@ -135,22 +162,19 @@ impl P384KeyPair {
         unsafe {
             let pair = OSSLKey::new().unwrap();
             // Ask OpenSSL to securely generate the keypair.
-            cvt(ffi::EC_KEY_generate_key(pair.0)).unwrap();
+            check_gtz(ffi::EC_KEY_generate_key(pair.0)).unwrap();
             // Read out the raw public key into a buffer.
             let public_key = ffi::EC_KEY_get0_public_key(pair.0);
             let mut buffer = [0_u8; P384_PUBLIC_KEY_SIZE];
             let bnc = OSSLBNC::new().unwrap();
-            let len = ffi::EC_POINT_point2oct(
+            assert!(ffi::EC_POINT_point2oct(
                 GROUP_P384.0,
                 public_key,
                 ffi::point_conversion_form_t::POINT_CONVERSION_COMPRESSED,
                 buffer.as_mut_ptr(),
                 P384_PUBLIC_KEY_SIZE,
                 bnc.0,
-            );
-            if len <= 0 {
-                Err::<(), _>(ErrorStack::get()).unwrap();
-            }
+            ) > 0);
             Self { pair: Mutex::new(pair), pub_bytes: buffer }
         }
     }
@@ -166,7 +190,7 @@ impl P384KeyPair {
                 let private = OSSLBN::from_slice(secret_bytes).ok()?;
                 // Tell OpenSSL to assign the private key to the public key.
                 // This makes the public key into a proper keypair.
-                if cvt(ffi::EC_KEY_set_private_key(pair.0, private.0)).is_ok() {
+                if check_gtz(ffi::EC_KEY_set_private_key(pair.0, private.0)).is_ok() {
                     // Get OpenSSL to double check if this final key makes sense.
                     // It will be read-only after this point.
                     if ffi::EC_KEY_check_key(pair.0) == 1 {
@@ -194,19 +218,17 @@ impl P384KeyPair {
     /// They are wrapped in a container which will erase them on drop.
     ///
     /// **Only write these to 100% trusted storage mediums. Avoid calling this function in general.**
-    pub fn secret_key_bytes(&self) -> Secret<P384_SECRET_KEY_SIZE> {
+    pub fn secret_key_bytes(&self, output: &mut [u8; P384_SECRET_KEY_SIZE]) {
         unsafe {
-            let mut tmp: Secret<P384_SECRET_KEY_SIZE> = Secret::default();
             let keypair = self.pair.lock().unwrap();
             // Get a temporary handle to the private key.
             let ptr = ffi::EC_KEY_get0_private_key(keypair.0);
             // Read the key's raw bytes out of OpenSSL.
-            let size = cvt_n(ffi::BN_bn2bin(ptr, tmp.as_bytes_mut().as_mut_ptr())).unwrap() as usize;
+            let size = check_gteqz(ffi::BN_bn2bin(ptr, output.as_mut_ptr())).unwrap() as usize;
             drop(keypair);
 
             // Double check big-endian-ness.
-            tmp.0.copy_within(..size, P384_SECRET_KEY_SIZE - size);
-            tmp
+            output.copy_within(..size, P384_SECRET_KEY_SIZE - size);
         }
     }
 
@@ -217,7 +239,7 @@ impl P384KeyPair {
         unsafe {
             let keypair = self.pair.lock().unwrap();
             // Actually create the signature with ECDSA.
-            let sig = cvt_p(ffi::ECDSA_do_sign(data.as_ptr(), data.len() as c_int, keypair.0));
+            let sig = check_ptr(ffi::ECDSA_do_sign(data.as_ptr(), data.len() as c_int, keypair.0));
             drop(keypair);
             let sig = sig.unwrap();
 
@@ -227,7 +249,7 @@ impl P384KeyPair {
             ffi::ECDSA_SIG_get0(sig, &mut r, &mut s);
             if r.is_null() || s.is_null() {
                 ffi::ECDSA_SIG_free(sig);
-                Err::<(), _>(ErrorStack::get()).unwrap();
+                assert!(false);
             }
             // Determine the size of the buffers to guarantee sanity and big-endian-ness.
             let r_len = ((ffi::BN_num_bits(r) + 7) / 8) as usize;
@@ -235,7 +257,7 @@ impl P384KeyPair {
             const CAP: usize = P384_ECDSA_SIGNATURE_SIZE / 2;
             if !(r_len > 0 && s_len > 0 && r_len <= CAP && s_len <= CAP) {
                 ffi::ECDSA_SIG_free(sig);
-                Err::<(), _>(ErrorStack::get()).unwrap();
+                assert!(false);
             }
 
             let mut b = [0_u8; P384_ECDSA_SIGNATURE_SIZE];
@@ -253,24 +275,18 @@ impl P384KeyPair {
     /// Perform ECDH key agreement, returning the raw (un-hashed!) ECDH secret.
     ///
     /// This secret should not be used directly. It should be hashed and perhaps used in a KDF.
-    pub fn agree(&self, other_public: &P384PublicKey) -> Option<Secret<P384_ECDH_SHARED_SECRET_SIZE>> {
+    pub fn agree(&self, other_public: &P384PublicKey, output: &mut [u8; P384_ECDH_SHARED_SECRET_SIZE]) -> bool {
         let keypair = self.pair.lock().unwrap();
         let other_key = other_public.key.lock().unwrap();
         unsafe {
-            let mut s: Secret<P384_ECDH_SHARED_SECRET_SIZE> = Secret::default();
             // Ask OpenSSL to perform DH between the keypair and the other key's public key object.
-            if ECDH_compute_key(
-                s.as_bytes_mut().as_mut_ptr(),
+            ECDH_compute_key(
+                output.as_mut_ptr(),
                 P384_ECDH_SHARED_SECRET_SIZE as c_ulong,
                 ffi::EC_KEY_get0_public_key(other_key.0),
                 keypair.0,
                 ptr::null(),
             ) == P384_ECDH_SHARED_SECRET_SIZE as c_int
-            {
-                Some(s)
-            } else {
-                None
-            }
         }
     }
 }
@@ -278,8 +294,8 @@ impl P384KeyPair {
 /// OpenSSL wrapper for a BN_CTX handle that guarantees free will be called.
 struct OSSLBNC(*mut ffi::BN_CTX);
 impl OSSLBNC {
-    unsafe fn new() -> Result<Self, ErrorStack> {
-        cvt_p(ffi::BN_CTX_new()).map(Self)
+    unsafe fn new() -> Result<Self, ()> {
+        check_ptr(ffi::BN_CTX_new()).map(Self)
     }
 }
 impl Drop for OSSLBNC {
@@ -294,8 +310,8 @@ struct OSSLBN(*mut ffi::BIGNUM);
 impl OSSLBN {
     /// We would use OpenSSL's newer API for p384 if it actually supported raw byte encodings of keys.
     /// Until then we are stuck with the old API.
-    unsafe fn from_slice(n: &[u8]) -> Result<Self, ErrorStack> {
-        cvt_p(ffi::BN_bin2bn(n.as_ptr(), n.len() as c_int, ptr::null_mut())).map(Self)
+    unsafe fn from_slice(n: &[u8]) -> Result<Self, ()> {
+        check_ptr(ffi::BN_bin2bn(n.as_ptr(), n.len() as c_int, ptr::null_mut())).map(Self)
     }
 }
 impl Drop for OSSLBN {
@@ -309,21 +325,21 @@ impl Drop for OSSLBN {
 struct OSSLKey(*mut ffi::EC_KEY);
 impl OSSLKey {
     /// Create an empty key, guaranteeing to the caller it has the correct group and will be freed.
-    unsafe fn new() -> Result<Self, ErrorStack> {
-        let key = cvt_p(ffi::EC_KEY_new())?;
-        cvt(ffi::EC_KEY_set_group(key, GROUP_P384.0))?;
+    unsafe fn new() -> Result<Self, ()> {
+        let key = check_ptr(ffi::EC_KEY_new())?;
+        check_gtz(ffi::EC_KEY_set_group(key, GROUP_P384.0))?;
         Ok(Self(key))
     }
     /// Create a key, guaranteeing to the caller it has the correct group, has a public key and will be freed.
     ///
     /// We would use OpenSSL's newer API for p384 if it actually supported raw byte encodings of keys.
     /// Until then we are stuck with the old API.
-    unsafe fn pub_from_slice(buffer: &[u8]) -> Result<OSSLKey, Option<ErrorStack>> {
+    unsafe fn pub_from_slice(buffer: &[u8]) -> Result<OSSLKey, ()> {
         /// The public key is an ec_point, we need to be sure we free its memory
         struct Point(*mut ffi::EC_POINT);
         impl Point {
-            unsafe fn new() -> Result<Self, ErrorStack> {
-                cvt_p(ffi::EC_POINT_new(GROUP_P384.0)).map(Self)
+            unsafe fn new() -> Result<Self, ()> {
+                check_ptr(ffi::EC_POINT_new(GROUP_P384.0)).map(Self)
             }
         }
         impl Drop for Point {
@@ -336,7 +352,7 @@ impl OSSLKey {
         let bnc = OSSLBNC::new()?;
         let point = Point::new()?;
         // Ask OpenSSL to read the raw bytes into the OpenSSL object.
-        cvt(ffi::EC_POINT_oct2point(
+        check_gtz(ffi::EC_POINT_oct2point(
             GROUP_P384.0,
             point.0,
             buffer.as_ptr(),
@@ -344,24 +360,24 @@ impl OSSLKey {
             bnc.0,
         ))?;
         // Check if the object is valid.
-        if cvt_n(ffi::EC_POINT_is_on_curve(GROUP_P384.0, point.0, bnc.0))? == 1 {
+        if check_gteqz(ffi::EC_POINT_is_on_curve(GROUP_P384.0, point.0, bnc.0))? == 1 {
             // Create an OpenSSL key and guarantee to the caller that the key was initialized with a
             // public key.
             let ec_key = OSSLKey::new()?;
-            cvt(ffi::EC_KEY_set_public_key(ec_key.0, point.0))?;
+            check_gtz(ffi::EC_KEY_set_public_key(ec_key.0, point.0))?;
             Ok(ec_key)
         } else {
-            Err(None)
+            Err(())
         }
     }
     /// Create a `Send`-able clone of the public key. We don't reference count for this reason.
-    fn clone_public(&self) -> Result<Self, ErrorStack> {
+    fn clone_public(&self) -> Result<Self, ()> {
         unsafe {
             let point = ffi::EC_KEY_get0_public_key(self.0);
             // Create an OpenSSL key and guarantee to the caller that the key was initialized with a
             // public key.
             let key = OSSLKey::new()?;
-            cvt(ffi::EC_KEY_set_public_key(key.0, point))?;
+            check_gtz(ffi::EC_KEY_set_public_key(key.0, point))?;
             Ok(key)
         }
     }
@@ -379,43 +395,42 @@ struct OSSLGroup(*mut ffi::EC_GROUP);
 unsafe impl Send for OSSLGroup {}
 unsafe impl Sync for OSSLGroup {}
 static GROUP_P384: Lazy<OSSLGroup> =
-    Lazy::new(|| unsafe { OSSLGroup(cvt_p(ffi::EC_GROUP_new_by_curve_name(ffi::NID_secp384r1)).unwrap()) });
+    Lazy::new(|| unsafe { OSSLGroup(check_ptr(ffi::EC_GROUP_new_by_curve_name(ffi::NID_secp384r1)).unwrap()) });
 
-impl p384::P384PublicKey for P384PublicKey {
-    fn from_bytes(raw_key: &[u8; p384::P384_PUBLIC_KEY_SIZE]) -> Option<Self> {
+/* Start of ZSSP Impl */
+
+impl zssp::crypto::P384PublicKey for P384PublicKey {
+    fn from_bytes(raw_key: &[u8; P384_PUBLIC_KEY_SIZE]) -> Option<Self> {
         Self::from_bytes(raw_key)
     }
 
-    fn as_bytes(&self) -> &[u8; p384::P384_PUBLIC_KEY_SIZE] {
-        self.as_bytes()
+    fn to_bytes(&self) -> [u8; P384_PUBLIC_KEY_SIZE] {
+        self.bytes
     }
 }
 
-impl p384::P384KeyPair for P384KeyPair {
+impl<Rng: RngCore + CryptoRng> zssp::crypto::P384KeyPair<Rng> for P384KeyPair {
     type PublicKey = P384PublicKey;
-    type Rng = super::random::SecureRandom;
 
-    fn generate(_: &mut Self::Rng) -> Self {
+    fn generate(_: &mut Rng) -> Self {
         Self::generate()
     }
 
-    fn public_key_bytes(&self) -> &[u8; p384::P384_PUBLIC_KEY_SIZE] {
-        self.public_key_bytes()
+    fn public_key_bytes(&self) -> [u8; P384_PUBLIC_KEY_SIZE] {
+        *self.public_key_bytes()
     }
 
-    fn agree(&self, other_public: &P384PublicKey, output: &mut [u8; p384::P384_ECDH_SHARED_SECRET_SIZE]) -> bool {
-        if let Some(s) = self.agree(other_public) {
-            *output = s.0;
-            true
-        } else {
-            false
-        }
+    fn agree(&self, other_public: &P384PublicKey, output: &mut [u8; P384_ECDH_SHARED_SECRET_SIZE]) -> bool {
+        self.agree(other_public, output)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{p384::P384KeyPair, secure_eq};
+    use crate::{
+        p384::{P384KeyPair, P384_ECDH_SHARED_SECRET_SIZE, P384_SECRET_KEY_SIZE},
+        secure_eq,
+    };
 
     #[test]
     fn generate_sign_verify_agree() {
@@ -432,21 +447,25 @@ mod tests {
             panic!("ECDSA verify succeeded for incorrect message");
         }
 
-        let sec0 = kp.agree(&kp2_pub).unwrap();
-        let sec1 = kp2.agree(&kp_pub).unwrap();
+        let mut sec0 = [0u8; P384_ECDH_SHARED_SECRET_SIZE];
+        let mut sec1 = [0u8; P384_ECDH_SHARED_SECRET_SIZE];
+        assert!(kp.agree(&kp2_pub, &mut sec0));
+        assert!(kp2.agree(&kp_pub, &mut sec1));
         if !secure_eq(&sec0, &sec1) {
             panic!("ECDH secrets do not match");
         }
 
         let pkb = kp.public_key_bytes();
-        let skb = kp.secret_key_bytes();
+        let mut skb = [0u8; P384_SECRET_KEY_SIZE];
+        kp.secret_key_bytes(&mut skb);
         let kp3 = P384KeyPair::from_bytes(pkb, skb.as_ref()).unwrap();
 
+        let mut skb3 = [0u8; P384_SECRET_KEY_SIZE];
         let pkb3 = kp3.public_key_bytes();
-        let skb3 = kp3.secret_key_bytes();
+        kp.secret_key_bytes(&mut skb3);
 
         assert_eq!(pkb, pkb3);
-        assert_eq!(skb.as_bytes(), skb3.as_bytes());
+        assert_eq!(skb, skb3);
 
         let sig = kp3.sign(&[3_u8; 16]);
         if !kp_pub.verify(&[3_u8; 16], &sig) {
