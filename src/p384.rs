@@ -73,12 +73,13 @@ unsafe impl Sync for P384PublicKey {}
 fn create_digest(domain: &[u8], data: &[&[u8]]) -> [u8; SHA384_HASH_SIZE] {
     debug_assert!(domain.len() <= u16::MAX as usize);
     let mut hasher = SHA384::new();
-    if domain.len() > 0 {
-        hasher.update(&(domain.len() as u16).to_be_bytes());
-        hasher.update(domain);
-    }
     for msg in data {
         hasher.update(msg);
+    }
+    // We hash the domain last to mitigate some of the weaknesses of merkle-damgard.
+    if domain.len() > 0 {
+        hasher.update(domain);
+        hasher.update(&(domain.len() as u16).to_be_bytes());
     }
     hasher.finish()
 }
