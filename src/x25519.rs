@@ -21,6 +21,7 @@ pub const ED25519_SECRET_KEY_SIZE: usize = 32;
 pub const ED25519_SIGNATURE_SIZE: usize = 64;
 
 /// Curve25519 key pair for ECDH key agreement.
+#[derive(Clone)]
 pub struct X25519KeyPair(x25519_dalek::StaticSecret, x25519_dalek::PublicKey);
 
 impl X25519KeyPair {
@@ -83,6 +84,7 @@ impl X25519KeyPair {
 }
 
 /// Ed25519 key pair for EDDSA signatures.
+#[derive(Clone)]
 pub struct Ed25519KeyPair(ed25519_dalek::SigningKey);
 
 impl Ed25519KeyPair {
