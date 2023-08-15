@@ -82,5 +82,3 @@ impl AesGcm<false> {
         unsafe { self.0.set_tag(expected_tag) && self.0.finalize::<false>() }
     }
 }
-
-/* Start of ZSSP Impl */

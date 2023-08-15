@@ -11,9 +11,9 @@ use zssp::crypto_impl::openssl_sys::*;
 
 use libc::c_int;
 use once_cell::unsync::Lazy;
-use rand_xoshiro::rand_core::{CryptoRng, Error, RngCore, SeedableRng};
+use zssp::crypto::rand_core::{CryptoRng, Error, RngCore, SeedableRng};
 
-pub use rand_xoshiro::rand_core;
+pub use zssp::crypto::rand_core;
 /// This crate contains the most modern, feature rich and high-quality variants of the Xorshift family of random
 /// number generators.
 /// While they are not cryptographically secure, they are also faster and several times harder to
@@ -24,7 +24,7 @@ pub use rand_xoshiro;
 /// Xorshift64 because there are fewer dependency chains in Xoshiro256** compared to Xorshift64.
 pub use rand_xoshiro::Xoshiro256StarStar;
 
-/// Fill buffer with cryptographically strong pseudo-random bytes.
+/// The cryptographically secure random number generator of OpenSSL.
 #[derive(Default, Clone, Copy)]
 pub struct SecureRandom;
 impl SecureRandom {
@@ -33,6 +33,7 @@ impl SecureRandom {
         self.fill_bytes(&mut dest);
         dest
     }
+    /// Create an xorshift instance seeded with secure RNG.
     pub fn create_xorshift(&mut self) -> Xoshiro256StarStar {
         Xoshiro256StarStar::from_rng(self).unwrap()
     }
@@ -69,9 +70,9 @@ unsafe impl Send for SecureRandom {}
 /// A global Xoshiro256** wrapped in a mutex and a OnceCell.
 /// Unsync OnceCell is just a wrapped `Option<>` and is very fast.
 /// Also OnceCell is about to be stabilized into Rust std.
-static GLOBAL_XORSHIFT: Mutex<Lazy<Xoshiro256StarStar>> =
-    Mutex::new(Lazy::new(|| SecureRandom.create_xorshift()));
+static GLOBAL_XORSHIFT: Mutex<Lazy<Xoshiro256StarStar>> = Mutex::new(Lazy::new(|| SecureRandom.create_xorshift()));
 
+/// A non-cryptographically secure global random number generator.
 pub struct XorshiftRandom;
 impl XorshiftRandom {
     pub fn get_bytes<const COUNT: usize>(&mut self) -> [u8; COUNT] {
@@ -79,6 +80,7 @@ impl XorshiftRandom {
         self.fill_bytes(&mut tmp);
         tmp
     }
+    /// Create an xorshift instance seeded with the global xorshift RNG.
     pub fn create_xorshift(&mut self) -> Xoshiro256StarStar {
         let mut state = GLOBAL_XORSHIFT.lock().unwrap();
         let ret = state.clone();
