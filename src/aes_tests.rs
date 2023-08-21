@@ -12,7 +12,6 @@ mod test {
     use crate::aes_gmac_siv::AesGmacSiv;
     use hex_literal::hex;
     use std::time::SystemTime;
-    use zssp::crypto::aes_gcm::{AesGcmDec, AesGcmEnc};
 
     fn to_hex(b: &[u8]) -> String {
         let mut s = String::new();
@@ -35,32 +34,32 @@ mod test {
         let mut cipher_out = [0u8; 127];
         let mut plain_out = [0u8; 127];
 
-        enc.set_iv(&iv0);
-        enc.encrypt(&plain, &mut cipher_out);
+        enc.reset_iv(&iv0);
+        enc.crypt(&plain, &mut cipher_out);
         enc.finish_encrypt(&mut tag_out);
 
-        dec.set_iv(&iv0);
-        dec.decrypt(&cipher_out, &mut plain_out);
+        dec.reset_iv(&iv0);
+        dec.crypt(&cipher_out, &mut plain_out);
         assert!(dec.finish_decrypt(&tag_out));
 
         assert_eq!(plain, plain_out);
 
-        enc.set_iv(&iv1);
-        enc.encrypt(&plain, &mut cipher_out);
+        enc.reset_iv(&iv1);
+        enc.crypt(&plain, &mut cipher_out);
         enc.finish_encrypt(&mut tag_out);
 
-        dec.set_iv(&iv1);
-        dec.decrypt(&cipher_out, &mut plain_out);
+        dec.reset_iv(&iv1);
+        dec.crypt(&cipher_out, &mut plain_out);
         assert!(dec.finish_decrypt(&tag_out));
 
         assert_eq!(plain, plain_out);
 
-        enc.set_iv(&iv0);
-        enc.encrypt(&plain, &mut cipher_out);
+        enc.reset_iv(&iv0);
+        enc.crypt(&plain, &mut cipher_out);
         enc.finish_encrypt(&mut tag_out);
 
-        dec.set_iv(&iv1);
-        dec.decrypt(&cipher_out, &mut plain_out);
+        dec.reset_iv(&iv1);
+        dec.crypt(&cipher_out, &mut plain_out);
         assert!(!dec.finish_decrypt(&tag_out));
     }
 
@@ -77,8 +76,8 @@ mod test {
         let benchmark_iterations: usize = 80000;
         let start = SystemTime::now();
         for _ in 0..benchmark_iterations {
-            c.set_iv(&iv);
-            c.encrypt_in_place(&mut buf);
+            c.reset_iv(&iv);
+            c.crypt_in_place(&mut buf);
         }
         let duration = SystemTime::now().duration_since(start).unwrap();
         println!(
@@ -90,8 +89,8 @@ mod test {
 
         let start = SystemTime::now();
         for _ in 0..benchmark_iterations {
-            c.set_iv(&iv);
-            c.decrypt_in_place(&mut buf);
+            c.reset_iv(&iv);
+            c.crypt_in_place(&mut buf);
         }
         let duration = SystemTime::now().duration_since(start).unwrap();
         println!(
@@ -106,25 +105,25 @@ mod test {
         let mut tag = [0u8; 16];
         for tv in NIST_AES_GCM_TEST_VECTORS.iter() {
             let mut gcm = AesGcm::<true>::new(&tv.key);
-            gcm.set_iv(tv.nonce);
+            gcm.reset_iv(tv.nonce);
             gcm.set_aad(tv.aad);
             let mut ciphertext = Vec::new();
             ciphertext.resize(tv.plaintext.len(), 0);
-            gcm.encrypt(tv.plaintext, ciphertext.as_mut());
+            gcm.crypt(tv.plaintext, ciphertext.as_mut());
             gcm.finish_encrypt(&mut tag);
             assert!(tag.eq(tv.tag));
             assert!(ciphertext.as_slice().eq(tv.ciphertext));
 
             let mut gcm = AesGcm::<false>::new(&tv.key);
-            gcm.set_iv(tv.nonce);
+            gcm.reset_iv(tv.nonce);
             gcm.set_aad(tv.aad);
             let mut ct_copy = ciphertext.clone();
-            gcm.decrypt_in_place(ct_copy.as_mut());
+            gcm.crypt_in_place(ct_copy.as_mut());
             assert!(gcm.finish_decrypt(&tag));
 
-            gcm.set_iv(tv.nonce);
+            gcm.reset_iv(tv.nonce);
             gcm.set_aad(tv.aad);
-            gcm.decrypt_in_place(ciphertext.as_mut());
+            gcm.crypt_in_place(ciphertext.as_mut());
             tag[0] ^= 1;
             assert!(!gcm.finish_decrypt(&tag));
         }

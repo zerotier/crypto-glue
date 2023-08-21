@@ -8,23 +8,25 @@
 
 use std::ptr;
 
-use crate::{cipher_ctx::CipherCtx, ZEROES};
+use crate::ZEROES;
+use zssp::crypto_impl::openssl_sys as ffi;
+use zssp::crypto_impl::OpenSSLCtx;
 
 /// AES-GMAC-SIV encryptor/decryptor.
 pub struct AesGmacSiv {
     tag: [u8; 16],
     tmp: [u8; 16],
-    ecb_enc: CipherCtx,
-    ecb_dec: CipherCtx,
-    ctr: CipherCtx,
-    gmac: CipherCtx,
+    ecb_enc: OpenSSLCtx,
+    ecb_dec: OpenSSLCtx,
+    ctr: OpenSSLCtx,
+    gmac: OpenSSLCtx,
 }
 
 impl AesGmacSiv {
     /// Create a new keyed instance of AES-GMAC-SIV
     /// The key may be of size 16, 24, or 32 bytes (128, 192, or 256 bits). Any other size will panic.
     pub fn new(k0: &[u8], k1: &[u8]) -> Self {
-        let gmac = CipherCtx::new().unwrap();
+        let gmac = OpenSSLCtx::new().unwrap();
         unsafe {
             let t = match k0.len() {
                 16 => ffi::EVP_aes_128_gcm(),
@@ -32,9 +34,9 @@ impl AesGmacSiv {
                 32 => ffi::EVP_aes_256_gcm(),
                 _ => panic!("Aes KEY_SIZE must be 16, 24 or 32"),
             };
-            gmac.cipher_init::<true>(t, k0.as_ptr(), ptr::null_mut()).unwrap();
+            assert!(gmac.cipher_init::<true>(t, k0.as_ptr(), ptr::null_mut()));
         }
-        let ctr = CipherCtx::new().unwrap();
+        let ctr = OpenSSLCtx::new().unwrap();
         unsafe {
             let t = match k1.len() {
                 16 => ffi::EVP_aes_128_ctr(),
@@ -42,9 +44,9 @@ impl AesGmacSiv {
                 32 => ffi::EVP_aes_256_ctr(),
                 _ => panic!("Aes KEY_SIZE must be 16, 24 or 32"),
             };
-            ctr.cipher_init::<true>(t, k1.as_ptr(), ptr::null_mut()).unwrap();
+            assert!(ctr.cipher_init::<true>(t, k1.as_ptr(), ptr::null_mut()));
         }
-        let ecb_enc = CipherCtx::new().unwrap();
+        let ecb_enc = OpenSSLCtx::new().unwrap();
         unsafe {
             let t = match k1.len() {
                 16 => ffi::EVP_aes_128_ecb(),
@@ -52,10 +54,10 @@ impl AesGmacSiv {
                 32 => ffi::EVP_aes_256_ecb(),
                 _ => panic!("Aes KEY_SIZE must be 16, 24 or 32"),
             };
-            ecb_enc.cipher_init::<true>(t, k1.as_ptr(), ptr::null_mut()).unwrap();
+            assert!(ecb_enc.cipher_init::<true>(t, k1.as_ptr(), ptr::null_mut()));
             ffi::EVP_CIPHER_CTX_set_padding(ecb_enc.as_ptr(), 0);
         }
-        let ecb_dec = CipherCtx::new().unwrap();
+        let ecb_dec = OpenSSLCtx::new().unwrap();
         unsafe {
             let t = match k1.len() {
                 16 => ffi::EVP_aes_128_ecb(),
@@ -63,7 +65,7 @@ impl AesGmacSiv {
                 32 => ffi::EVP_aes_256_ecb(),
                 _ => panic!("Aes KEY_SIZE must be 16, 24 or 32"),
             };
-            ecb_dec.cipher_init::<false>(t, k1.as_ptr(), ptr::null_mut()).unwrap();
+            assert!(ecb_dec.cipher_init::<false>(t, k1.as_ptr(), ptr::null_mut()));
             ffi::EVP_CIPHER_CTX_set_padding(ecb_dec.as_ptr(), 0);
         }
 
@@ -87,9 +89,9 @@ impl AesGmacSiv {
         self.tag[0..8].copy_from_slice(iv);
         self.tag[8..12].fill(0);
         unsafe {
-            self.gmac
-                .cipher_init::<true>(ptr::null_mut(), ptr::null_mut(), self.tag[0..12].as_ptr())
-                .unwrap();
+            assert!(self
+                .gmac
+                .cipher_init::<true>(ptr::null_mut(), ptr::null_mut(), self.tag[0..12].as_ptr()));
         }
     }
 
@@ -98,11 +100,11 @@ impl AesGmacSiv {
     #[inline(always)]
     pub fn encrypt_set_aad(&mut self, data: &[u8]) {
         unsafe {
-            self.gmac.update::<true>(data, ptr::null_mut()).unwrap();
+            assert!(self.gmac.update::<true>(data, ptr::null_mut()));
             let mut pad = data.len() & 0xf;
             if pad != 0 {
                 pad = 16 - pad;
-                self.gmac.update::<true>(&ZEROES[0..pad], ptr::null_mut()).unwrap();
+                assert!(self.gmac.update::<true>(&ZEROES[0..pad], ptr::null_mut()));
             }
         }
     }
@@ -112,7 +114,7 @@ impl AesGmacSiv {
     #[inline(always)]
     pub fn encrypt_first_pass(&mut self, plaintext: &[u8]) {
         unsafe {
-            self.gmac.update::<true>(plaintext, ptr::null_mut()).unwrap();
+            assert!(self.gmac.update::<true>(plaintext, ptr::null_mut()));
         }
     }
 
@@ -120,8 +122,8 @@ impl AesGmacSiv {
     #[inline(always)]
     pub fn encrypt_first_pass_finish(&mut self) {
         unsafe {
-            self.gmac.finalize::<true>().unwrap();
-            self.gmac.tag(&mut self.tmp).unwrap();
+            assert!(self.gmac.finalize::<true>());
+            assert!(self.gmac.get_tag(&mut self.tmp));
         }
 
         self.tag[8] = self.tmp[0] ^ self.tmp[8];
@@ -136,7 +138,7 @@ impl AesGmacSiv {
         let mut tag_tmp = [0_u8; 16];
 
         unsafe {
-            self.ecb_enc.update::<true>(&self.tag, tag_tmp.as_mut_ptr()).unwrap();
+            assert!(self.ecb_enc.update::<true>(&self.tag, tag_tmp.as_mut_ptr()));
         }
         self.tag.copy_from_slice(&tag_tmp);
         self.tmp.copy_from_slice(&tag_tmp);
@@ -144,9 +146,9 @@ impl AesGmacSiv {
         self.tmp[12] &= 0x7f;
 
         unsafe {
-            self.ctr
-                .cipher_init::<true>(ptr::null_mut(), ptr::null_mut(), self.tmp.as_ptr())
-                .unwrap();
+            assert!(self
+                .ctr
+                .cipher_init::<true>(ptr::null_mut(), ptr::null_mut(), self.tmp.as_ptr()));
         }
     }
 
@@ -155,7 +157,7 @@ impl AesGmacSiv {
     #[inline(always)]
     pub fn encrypt_second_pass(&mut self, plaintext: &[u8], ciphertext: &mut [u8]) {
         unsafe {
-            self.ctr.update::<true>(plaintext, ciphertext.as_mut_ptr()).unwrap();
+            assert!(self.ctr.update::<true>(plaintext, ciphertext.as_mut_ptr()));
         }
     }
 
@@ -165,7 +167,7 @@ impl AesGmacSiv {
     pub fn encrypt_second_pass_in_place(&mut self, plaintext_to_ciphertext: &mut [u8]) {
         unsafe {
             let out = plaintext_to_ciphertext.as_mut_ptr();
-            self.ctr.update::<true>(plaintext_to_ciphertext, out).unwrap();
+            assert!(self.ctr.update::<true>(plaintext_to_ciphertext, out));
         }
     }
 
@@ -184,23 +186,23 @@ impl AesGmacSiv {
         self.tmp[12] &= 0x7f;
 
         unsafe {
-            self.ctr
-                .cipher_init::<false>(ptr::null_mut(), ptr::null_mut(), self.tmp.as_ptr())
-                .unwrap();
+            assert!(self
+                .ctr
+                .cipher_init::<false>(ptr::null_mut(), ptr::null_mut(), self.tmp.as_ptr()));
         }
 
         let mut tag_tmp = [0_u8; 16];
 
         unsafe {
-            self.ecb_dec.update::<false>(tag, tag_tmp.as_mut_ptr()).unwrap();
+            assert!(self.ecb_dec.update::<false>(tag, tag_tmp.as_mut_ptr()));
         }
         self.tag.copy_from_slice(&tag_tmp);
         tag_tmp[8..12].fill(0);
 
         unsafe {
-            self.gmac
-                .cipher_init::<true>(ptr::null_mut(), ptr::null_mut(), tag_tmp.as_ptr())
-                .unwrap();
+            assert!(self
+                .gmac
+                .cipher_init::<true>(ptr::null_mut(), ptr::null_mut(), tag_tmp.as_ptr()));
         }
     }
 
@@ -215,8 +217,8 @@ impl AesGmacSiv {
     #[inline(always)]
     pub fn decrypt(&mut self, ciphertext: &[u8], plaintext: &mut [u8]) {
         unsafe {
-            self.ctr.update::<false>(ciphertext, plaintext.as_mut_ptr()).unwrap();
-            self.gmac.update::<true>(plaintext, ptr::null_mut()).unwrap();
+            assert!(self.ctr.update::<false>(ciphertext, plaintext.as_mut_ptr()));
+            assert!(self.gmac.update::<true>(plaintext, ptr::null_mut()));
         }
     }
 
@@ -235,8 +237,8 @@ impl AesGmacSiv {
     #[inline(always)]
     pub fn decrypt_finish(&mut self) -> Option<&[u8; 16]> {
         unsafe {
-            self.gmac.finalize::<true>().unwrap();
-            self.gmac.tag(&mut self.tmp).unwrap();
+            assert!(self.gmac.finalize::<true>());
+            assert!(self.gmac.get_tag(&mut self.tmp));
         }
         if (self.tag[8] == self.tmp[0] ^ self.tmp[8])
             && (self.tag[9] == self.tmp[1] ^ self.tmp[9])

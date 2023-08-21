@@ -12,7 +12,8 @@ use std::mem::MaybeUninit;
 use std::os::raw::{c_int, c_uint};
 use std::ptr::null;
 
-use zssp::crypto::sha512;
+use zssp::crypto::{Sha512Hash, Sha512Hmac};
+use zssp::crypto_impl::openssl_sys as ffi;
 
 pub const SHA512_HASH_SIZE: usize = 64;
 pub const HMAC_SHA512_SIZE: usize = 64;
@@ -20,7 +21,6 @@ pub const SHA384_HASH_SIZE: usize = 48;
 pub const HMAC_SHA384_SIZE: usize = 48;
 
 pub struct SHA512(ffi::SHA512_CTX);
-
 impl SHA512 {
     #[inline(always)]
     pub fn hash(data: &[u8]) -> [u8; SHA512_HASH_SIZE] {
@@ -72,7 +72,6 @@ impl SHA512 {
         }
     }
 }
-
 impl Write for SHA512 {
     #[inline(always)]
     fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
@@ -87,23 +86,7 @@ impl Write for SHA512 {
 }
 unsafe impl Send for SHA512 {}
 
-impl sha512::Sha512 for SHA512 {
-    fn new() -> Self {
-        SHA512::new()
-    }
-    fn reset(&mut self) {
-        self.reset()
-    }
-    fn update(&mut self, input: &[u8]) {
-        self.update(input)
-    }
-    fn finish(&mut self, output: &mut [u8; sha512::SHA512_HASH_SIZE]) {
-        self.finish_into(output)
-    }
-}
-
 pub struct SHA384(ffi::SHA512_CTX);
-
 impl SHA384 {
     #[inline(always)]
     pub fn hash(data: &[u8]) -> [u8; SHA384_HASH_SIZE] {
@@ -153,7 +136,6 @@ impl SHA384 {
         }
     }
 }
-
 impl Write for SHA384 {
     #[inline(always)]
     fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
@@ -166,10 +148,8 @@ impl Write for SHA384 {
         Ok(())
     }
 }
-
 unsafe impl Send for SHA384 {}
 
-//#[link(name="crypto")]
 extern "C" {
     fn HMAC_CTX_new() -> *mut c_void;
     fn HMAC_CTX_reset(ctx: *mut c_void) -> c_int;
@@ -191,7 +171,6 @@ pub struct HMACSHA512 {
     ctx: *mut c_void,
     evp_md: *const c_void,
 }
-
 impl HMACSHA512 {
     #[inline(always)]
     pub fn new(key: &[u8]) -> Self {
@@ -241,7 +220,6 @@ impl HMACSHA512 {
         tmp
     }
 }
-
 impl Drop for HMACSHA512 {
     #[inline(always)]
     fn drop(&mut self) {
@@ -250,26 +228,10 @@ impl Drop for HMACSHA512 {
 }
 unsafe impl Send for HMACSHA512 {}
 
-impl sha512::HmacSha512 for HMACSHA512 {
-    fn new() -> Self {
-        HMACSHA512::new(&[])
-    }
-    fn reset(&mut self, key: &[u8]) {
-        self.reset(key)
-    }
-    fn update(&mut self, input: &[u8]) {
-        self.update(input)
-    }
-    fn finish(&mut self, output: &mut [u8; sha512::SHA512_HASH_SIZE]) {
-        *output = self.finish()
-    }
-}
-
 pub struct HMACSHA384 {
     ctx: *mut c_void,
     evp_md: *const c_void,
 }
-
 impl HMACSHA384 {
     #[inline(always)]
     pub fn new(key: &[u8]) -> Self {
@@ -319,14 +281,12 @@ impl HMACSHA384 {
         tmp
     }
 }
-
 impl Drop for HMACSHA384 {
     #[inline(always)]
     fn drop(&mut self) {
         unsafe { HMAC_CTX_free(self.ctx) };
     }
 }
-
 unsafe impl Send for HMACSHA384 {}
 
 #[inline(always)]
@@ -334,4 +294,33 @@ pub fn hmac_sha384(key: &[u8], msg: &[u8]) -> [u8; HMAC_SHA384_SIZE] {
     let mut hm = HMACSHA384::new(key);
     hm.update(msg);
     hm.finish()
+}
+
+/* Start of ZSSP Impl */
+
+impl Sha512Hmac for HMACSHA512 {
+    fn new() -> Self {
+        HMACSHA512::new(&[])
+    }
+
+    fn hash(&mut self, key: &[u8], full_input: &[u8], output: &mut [u8; SHA512_HASH_SIZE]) {
+        self.reset(key);
+        self.update(full_input);
+        self.finish_into(output);
+    }
+}
+
+impl Sha512Hash for SHA512 {
+    fn new() -> Self {
+        SHA512::new()
+    }
+
+    fn update(&mut self, data: &[u8]) {
+        self.update(data);
+    }
+
+    fn finish_and_reset(&mut self, output: &mut [u8; SHA512_HASH_SIZE]) {
+        self.finish_into(output);
+        self.reset();
+    }
 }

@@ -6,45 +6,33 @@
  * https://www.zerotier.com/
  */
 
-mod cipher_ctx;
-mod error;
+//mod error;
+mod aes_tests;
 
 pub mod hash;
 pub mod p384;
 pub mod random;
-pub mod secret;
 
 pub mod poly1305;
 pub mod salsa;
 pub mod typestate;
 pub mod x25519;
 
-#[cfg(target_os = "macos")]
-pub mod aes_fruity;
-#[cfg(target_os = "macos")]
-pub use aes_fruity as aes;
+// TODO: Bring back the faster Apple API implementations.
 
-#[cfg(not(target_os = "macos"))]
 pub mod aes_openssl;
-#[cfg(not(target_os = "macos"))]
 pub use aes_openssl as aes;
 
-mod aes_tests;
-
-//#[cfg(target_os = "macos")]
-//pub mod aes_gmac_siv_fruity;
-//#[cfg(target_os = "macos")]
-//pub use aes_gmac_siv_fruity as aes_gmac_siv;
-
-//#[cfg(not(target_os = "macos"))]
 pub mod aes_gmac_siv_openssl;
-//#[cfg(not(target_os = "macos"))]
 pub use aes_gmac_siv_openssl as aes_gmac_siv;
-use ctor::ctor;
 
+/// Dependency re-export
+pub use zssp;
+
+use ctor::ctor;
 #[ctor]
 fn openssl_init() {
-    ffi::init();
+    zssp::crypto_impl::openssl_sys::init();
 }
 
 /// Constant time byte slice equality.
