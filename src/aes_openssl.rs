@@ -11,7 +11,7 @@ use std::ptr;
 use zssp::crypto::*;
 use zssp::crypto_impl::openssl_sys as ffi;
 
-use zssp::crypto_impl::CipherCtx;
+use zssp::crypto_impl::OpenSSLCtx;
 
 /// An OpenSSL AES_GCM context. Automatically frees itself on drop.
 /// The current interface is custom made for ZeroTier, but could easily be adapted for other uses.
@@ -21,13 +21,13 @@ use zssp::crypto_impl::CipherCtx;
 ///
 /// This object cannot be mutated by multiple threads at the same time so wrap it in a Mutex if
 /// you need to do this. As far as I have read a Mutex<AesGcm> can safely implement Send and Sync.
-pub struct AesGcm<const ENCRYPT: bool>(CipherCtx);
+pub struct AesGcm<const ENCRYPT: bool>(OpenSSLCtx);
 
 impl<const ENCRYPT: bool> AesGcm<ENCRYPT> {
     /// Create an AesGcm context with the given key.
     /// OpenSSL internally processes and caches this key, so it is recommended to reuse this context whenever encrypting under the same key. Call `reset_init_gcm` to change the IV for each reuse.
     pub fn new(key: &[u8; AES_256_KEY_SIZE]) -> Self {
-        let ctx = CipherCtx::new().unwrap();
+        let ctx = OpenSSLCtx::new().unwrap();
         unsafe {
             let t = ffi::EVP_aes_256_gcm();
             assert!(ctx.cipher_init::<ENCRYPT>(t, key.as_ptr(), ptr::null()));

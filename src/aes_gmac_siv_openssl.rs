@@ -10,23 +10,23 @@ use std::ptr;
 
 use crate::ZEROES;
 use zssp::crypto_impl::openssl_sys as ffi;
-use zssp::crypto_impl::CipherCtx;
+use zssp::crypto_impl::OpenSSLCtx;
 
 /// AES-GMAC-SIV encryptor/decryptor.
 pub struct AesGmacSiv {
     tag: [u8; 16],
     tmp: [u8; 16],
-    ecb_enc: CipherCtx,
-    ecb_dec: CipherCtx,
-    ctr: CipherCtx,
-    gmac: CipherCtx,
+    ecb_enc: OpenSSLCtx,
+    ecb_dec: OpenSSLCtx,
+    ctr: OpenSSLCtx,
+    gmac: OpenSSLCtx,
 }
 
 impl AesGmacSiv {
     /// Create a new keyed instance of AES-GMAC-SIV
     /// The key may be of size 16, 24, or 32 bytes (128, 192, or 256 bits). Any other size will panic.
     pub fn new(k0: &[u8], k1: &[u8]) -> Self {
-        let gmac = CipherCtx::new().unwrap();
+        let gmac = OpenSSLCtx::new().unwrap();
         unsafe {
             let t = match k0.len() {
                 16 => ffi::EVP_aes_128_gcm(),
@@ -36,7 +36,7 @@ impl AesGmacSiv {
             };
             assert!(gmac.cipher_init::<true>(t, k0.as_ptr(), ptr::null_mut()));
         }
-        let ctr = CipherCtx::new().unwrap();
+        let ctr = OpenSSLCtx::new().unwrap();
         unsafe {
             let t = match k1.len() {
                 16 => ffi::EVP_aes_128_ctr(),
@@ -46,7 +46,7 @@ impl AesGmacSiv {
             };
             assert!(ctr.cipher_init::<true>(t, k1.as_ptr(), ptr::null_mut()));
         }
-        let ecb_enc = CipherCtx::new().unwrap();
+        let ecb_enc = OpenSSLCtx::new().unwrap();
         unsafe {
             let t = match k1.len() {
                 16 => ffi::EVP_aes_128_ecb(),
@@ -57,7 +57,7 @@ impl AesGmacSiv {
             assert!(ecb_enc.cipher_init::<true>(t, k1.as_ptr(), ptr::null_mut()));
             ffi::EVP_CIPHER_CTX_set_padding(ecb_enc.as_ptr(), 0);
         }
-        let ecb_dec = CipherCtx::new().unwrap();
+        let ecb_dec = OpenSSLCtx::new().unwrap();
         unsafe {
             let t = match k1.len() {
                 16 => ffi::EVP_aes_128_ecb(),

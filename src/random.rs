@@ -33,6 +33,13 @@ impl SecureRandom {
         self.fill_bytes(&mut dest);
         dest
     }
+
+    fn next_u128(&mut self) -> u128 {
+        let mut tmp = [0u8; 16];
+        self.fill_bytes(&mut tmp);
+        u128::from_ne_bytes(tmp)
+    }
+
     /// Create an xorshift instance seeded with secure RNG.
     pub fn create_xorshift(&mut self) -> Xoshiro256StarStar {
         Xoshiro256StarStar::from_rng(self).unwrap()
@@ -104,4 +111,33 @@ impl RngCore for XorshiftRandom {
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
         GLOBAL_XORSHIFT.lock().unwrap().try_fill_bytes(dest)
     }
+}
+
+#[deprecated(since="0.2.0", note="please use `SecureRandom.next_u32()` instead")]
+pub fn next_u32_secure() -> u32 {
+    SecureRandom.next_u32()
+}
+
+#[deprecated(since="0.2.0", note="please use `SecureRandom.next_u64()` instead")]
+pub fn next_u64_secure() -> u64 {
+    SecureRandom.next_u64()
+}
+
+#[deprecated(since="0.2.0", note="please use `SecureRandom.next_u128()` instead")]
+pub fn next_u128_secure() -> u128 {
+    SecureRandom.next_u128()
+}
+
+#[deprecated(since="0.2.0", note="please use `SecureRandom.fill_bytes(dest)` instead")]
+pub fn fill_bytes_secure(dest: &mut [u8]) {
+    SecureRandom.fill_bytes(dest)
+}
+
+#[deprecated(since="0.2.0", note="please use `SecureRandom.get_bytes()` instead")]
+pub fn get_bytes_secure<const COUNT: usize>() -> [u8; COUNT] {
+    SecureRandom.get_bytes()
+}
+#[deprecated(since="0.2.0", note="please use `XorshiftRandom.next_u64()` instead")]
+pub fn xorshift64_random() -> u64 {
+    XorshiftRandom.next_u64()
 }
