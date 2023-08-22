@@ -33,7 +33,7 @@ pub use zssp;
 #[macro_export]
 macro_rules! impl_zssp_crypto {
     ($t:ty, $session_data:ty, $packet_buffer:ty) => {
-        impl zssp::application::CryptoLayer for $t {
+        impl $crate::zssp::application::CryptoLayer for $t {
             type Rng = $crate::random::SecureRandom;
 
             type PrpEnc = $crate::zssp::crypto_impl::OpenSSLAes256Enc;
