@@ -37,6 +37,7 @@ macro_rules! impl_zssp_crypto {
             use ::zerotier_crypto_glue::zssp;
             use ::zerotier_crypto_glue::random;
             use ::zerotier_crypto_glue::hash;
+            use ::zerotier_crypto_glue::p384;
             impl ::zerotier_crypto_glue::zssp::application::CryptoLayer for $t {
                 type Rng = ::zerotier_crypto_glue::random::SecureRandom;
 
