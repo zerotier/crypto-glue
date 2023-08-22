@@ -21,6 +21,7 @@ pub mod x25519;
 // TODO: Bring back the faster Apple API implementations.
 
 pub mod aes_openssl;
+
 pub use aes_openssl as aes;
 
 pub mod aes_gmac_siv_openssl;
@@ -28,6 +29,31 @@ pub use aes_gmac_siv_openssl as aes_gmac_siv;
 
 /// Dependency re-export
 pub use zssp;
+
+#[macro_export]
+macro_rules! impl_zssp_crypto {
+    ($t:ty, $session_data:ty, $packet_buffer:ty) => {
+        impl zssp::application::CryptoLayer for $t {
+            type Rng = crate::random::SecureRandom;
+
+            type PrpEnc = zssp::crypto_impl::OpenSSLAes256Enc;
+            type PrpDec = zssp::crypto_impl::OpenSSLAes256Dec;
+
+            type Aead = zssp::crypto_impl::OpenSSLAesGcm;
+            type AeadPool = zssp::crypto_impl::OpenSSLAesGcmPool;
+
+            type Hash = crate::hash::SHA512;
+            type Hmac = crate::hash::HMACSHA512;
+
+            type PublicKey = crate::p384::P384PublicKey;
+            type KeyPair = crate::p384::P384KeyPair;
+            type Kem = zssp::crypto_impl::CrateKyber1024PrivateKey;
+
+            type SessionData = $session_data;
+            type IncomingPacketBuffer = $packet_buffer;
+        }
+    }
+}
 
 use ctor::ctor;
 #[ctor]
