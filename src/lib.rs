@@ -33,21 +33,21 @@ pub use zssp;
 #[macro_export]
 macro_rules! impl_zssp_crypto {
     ($t:ty, $session_data:ty, $packet_buffer:ty) => {
-        impl $crate::zssp::application::CryptoLayer for $t {
-            type Rng = $crate::random::SecureRandom;
+        impl ::zerotier_crypto_glue::zssp::application::CryptoLayer for $t {
+            type Rng = ::zerotier_crypto_glue::random::SecureRandom;
 
-            type PrpEnc = $crate::zssp::crypto_impl::OpenSSLAes256Enc;
-            type PrpDec = $crate::zssp::crypto_impl::OpenSSLAes256Dec;
+            type PrpEnc = ::zerotier_crypto_glue::zssp::crypto_impl::OpenSSLAes256Enc;
+            type PrpDec = ::zerotier_crypto_glue::zssp::crypto_impl::OpenSSLAes256Dec;
 
-            type Aead = $crate::zssp::crypto_impl::OpenSSLAesGcm;
-            type AeadPool = $crate::zssp::crypto_impl::OpenSSLAesGcmPool;
+            type Aead = ::zerotier_crypto_glue::zssp::crypto_impl::OpenSSLAesGcm;
+            type AeadPool = ::zerotier_crypto_glue::zssp::crypto_impl::OpenSSLAesGcmPool;
 
-            type Hash = $crate::hash::SHA512;
-            type Hmac = $crate::hash::HMACSHA512;
+            type Hash = ::zerotier_crypto_glue::hash::SHA512;
+            type Hmac = ::zerotier_crypto_glue::hash::HMACSHA512;
 
-            type PublicKey = $crate::p384::P384PublicKey;
-            type KeyPair = $crate::p384::P384KeyPair;
-            type Kem = $crate::zssp::crypto_impl::CrateKyber1024PrivateKey;
+            type PublicKey = ::zerotier_crypto_glue::p384::P384PublicKey;
+            type KeyPair = ::zerotier_crypto_glue::p384::P384KeyPair;
+            type Kem = ::zerotier_crypto_glue::zssp::crypto_impl::CrateKyber1024PrivateKey;
 
             type SessionData = $session_data;
             type IncomingPacketBuffer = $packet_buffer;
