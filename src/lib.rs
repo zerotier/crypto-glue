@@ -52,7 +52,7 @@ macro_rules! impl_zssp_crypto {
             type SessionData = $session_data;
             type IncomingPacketBuffer = $packet_buffer;
         }
-    }
+    };
 }
 
 use ctor::ctor;

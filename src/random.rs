@@ -13,7 +13,6 @@ use libc::c_int;
 use once_cell::unsync::Lazy;
 use zssp::crypto::rand_core::{CryptoRng, Error, RngCore, SeedableRng};
 
-pub use zssp::crypto::rand_core;
 /// This crate contains the most modern, feature rich and high-quality variants of the Xorshift family of random
 /// number generators.
 /// While they are not cryptographically secure, they are also faster and several times harder to
@@ -23,6 +22,7 @@ pub use rand_xoshiro;
 /// Xoshiro256** according to my benchmarking is surprisingly twice as fast as vanilla
 /// Xorshift64 because there are fewer dependency chains in Xoshiro256** compared to Xorshift64.
 pub use rand_xoshiro::Xoshiro256StarStar;
+pub use zssp::crypto::rand_core;
 
 /// The cryptographically secure random number generator of OpenSSL.
 #[derive(Default, Clone, Copy)]
@@ -113,31 +113,31 @@ impl RngCore for XorshiftRandom {
     }
 }
 
-#[deprecated(since="0.2.0", note="please use `SecureRandom.next_u32()` instead")]
+#[deprecated(since = "0.2.0", note = "please use `SecureRandom.next_u32()` instead")]
 pub fn next_u32_secure() -> u32 {
     SecureRandom.next_u32()
 }
 
-#[deprecated(since="0.2.0", note="please use `SecureRandom.next_u64()` instead")]
+#[deprecated(since = "0.2.0", note = "please use `SecureRandom.next_u64()` instead")]
 pub fn next_u64_secure() -> u64 {
     SecureRandom.next_u64()
 }
 
-#[deprecated(since="0.2.0", note="please use `SecureRandom.next_u128()` instead")]
+#[deprecated(since = "0.2.0", note = "please use `SecureRandom.next_u128()` instead")]
 pub fn next_u128_secure() -> u128 {
     SecureRandom.next_u128()
 }
 
-#[deprecated(since="0.2.0", note="please use `SecureRandom.fill_bytes(dest)` instead")]
+#[deprecated(since = "0.2.0", note = "please use `SecureRandom.fill_bytes(dest)` instead")]
 pub fn fill_bytes_secure(dest: &mut [u8]) {
     SecureRandom.fill_bytes(dest)
 }
 
-#[deprecated(since="0.2.0", note="please use `SecureRandom.get_bytes()` instead")]
+#[deprecated(since = "0.2.0", note = "please use `SecureRandom.get_bytes()` instead")]
 pub fn get_bytes_secure<const COUNT: usize>() -> [u8; COUNT] {
     SecureRandom.get_bytes()
 }
-#[deprecated(since="0.2.0", note="please use `XorshiftRandom.next_u64()` instead")]
+#[deprecated(since = "0.2.0", note = "please use `XorshiftRandom.next_u64()` instead")]
 pub fn xorshift64_random() -> u64 {
     XorshiftRandom.next_u64()
 }

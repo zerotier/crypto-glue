@@ -128,21 +128,32 @@ impl P384PublicKey {
             if let (Ok(r), Ok(s)) = (r, s) {
                 // Create the OpenSSL object that actually supports verification.
                 if let Ok(sig) = check_ptr(ffi::ECDSA_SIG_new()) {
-                    let is_valid = if ffi::ECDSA_SIG_set0(sig, r.0, s.0) == 1 {
-                        // For some reason this one random function, `ECDSA_SIG_set0`, takes
-                        // ownership of its parameters. I've double checked and it is the only one
-                        // we call that does that. We `forget` the memory so we don't double free.
-                        mem::forget(r);
-                        mem::forget(s);
-                        // Digest the message.
-                        let digest = create_digest(domain, data);
+                    cfg_if::cfg_if! {
+                        if #[cfg(no_get0set0)] {
+                            let sig_deref = sig.as_mut().unwrap();
+                            if !sig_deref.r.is_null() {
+                                ffi::BN_free(sig_deref.r);
+                            }
+                            if !sig_deref.s.is_null() {
+                                ffi::BN_free(sig_deref.s);
+                            }
+                            sig_deref.r = r.0;
+                            sig_deref.s = s.0;
+                        } else {
+                            assert!(ffi::ECDSA_SIG_set0(sig, r.0, s.0) == 1);
+                        }
+                    }
+                    // For some reason this one random function, `ECDSA_SIG_set0`, takes
+                    // ownership of its parameters. I've double checked and it is the only one
+                    // we call that does that. We `forget` the memory so we don't double free.
+                    mem::forget(r);
+                    mem::forget(s);
+                    // Digest the message.
+                    let digest = create_digest(domain, data);
 
-                        let key = self.key.lock().unwrap();
-                        // Actually perform the verification.
-                        ffi::ECDSA_do_verify(digest.as_ptr(), digest.len() as c_int, sig, key.0) == 1
-                    } else {
-                        false
-                    };
+                    let key = self.key.lock().unwrap();
+                    // Actually perform the verification.
+                    let is_valid = ffi::ECDSA_do_verify(digest.as_ptr(), digest.len() as c_int, sig, key.0) == 1;
                     // Guarantee signature free.
                     ffi::ECDSA_SIG_free(sig);
                     return is_valid;
@@ -209,7 +220,10 @@ impl P384KeyPair {
     /// Create a p384 keypair from raw bytes.
     /// `public_bytes` should have length `P384_PUBLIC_KEY_SIZE` and `secret_bytes` should have length
     /// `P384_SECRET_KEY_SIZE`.
-    pub fn from_bytes(public_bytes: &[u8; P384_PUBLIC_KEY_SIZE], secret_bytes: &[u8; P384_SECRET_KEY_SIZE]) -> Option<P384KeyPair> {
+    pub fn from_bytes(
+        public_bytes: &[u8; P384_PUBLIC_KEY_SIZE],
+        secret_bytes: &[u8; P384_SECRET_KEY_SIZE],
+    ) -> Option<P384KeyPair> {
         unsafe {
             // Write the raw bytes into OpenSSL.
             let pair = OSSLKey::pub_from_slice(public_bytes).ok()?;
@@ -285,6 +299,7 @@ impl P384KeyPair {
     /// The signature will only be valid when verified with the same "domain".
     /// Restricting signatures to domains reduces the risk of a valid signature being used for a
     /// purpose the signer did not intend.
+    #[allow(unused_assignments)]
     pub fn sign_all(&self, domain: &[u8], data: &[&[u8]]) -> [u8; P384_ECDSA_SIGNATURE_SIZE] {
         let digest = create_digest(domain, data);
         unsafe {
@@ -297,7 +312,16 @@ impl P384KeyPair {
             // Get handles to the OpenSSL objects that actually support reading out into bytes.
             let mut r = ptr::null();
             let mut s = ptr::null();
-            ffi::ECDSA_SIG_get0(sig, &mut r, &mut s);
+            cfg_if::cfg_if! {
+                if #[cfg(no_get0set0)] {
+                    let sig_deref = sig.as_ref().unwrap();
+                    r = sig_deref.r;
+                    s = sig_deref.s;
+                } else {
+                    ffi::ECDSA_SIG_get0(sig, &mut r, &mut s);
+                }
+            }
+
             if r.is_null() || s.is_null() {
                 ffi::ECDSA_SIG_free(sig);
                 assert!(false);
@@ -479,7 +503,10 @@ impl<Rng: RngCore + CryptoRng> zssp::crypto::P384KeyPair<Rng> for P384KeyPair {
 #[cfg(test)]
 mod tests {
     use crate::{
-        p384::{P384KeyPair, P384_ECDH_SHARED_SECRET_SIZE, P384_PUBLIC_KEY_SIZE, P384_SECRET_KEY_SIZE, P384_ECDSA_SIGNATURE_SIZE},
+        p384::{
+            P384KeyPair, P384_ECDH_SHARED_SECRET_SIZE, P384_ECDSA_SIGNATURE_SIZE, P384_PUBLIC_KEY_SIZE,
+            P384_SECRET_KEY_SIZE,
+        },
         secure_eq,
     };
 

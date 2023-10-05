@@ -7,10 +7,12 @@ readme = "README.md"
 categories = ["cryptography", "api-bindings"]
 edition = "2021"
 version = "0.2.0"
+build = "build.rs"
 
 [features]
 
 [dependencies]
+openssl-sys = "0.9.91"
 x25519-dalek = { version = "2.0.0", features = ["static_secrets"], default-features = false }
 ed25519-dalek = { version = "2.0.0", features = ["digest", "rand_core"], default-features = false }
 poly1305 = { version = "0.8.0", features = [], default-features = false }
