@@ -10,7 +10,7 @@ use std::ffi::c_void;
 use std::io::Write;
 use std::mem::MaybeUninit;
 use std::os::raw::{c_int, c_uint};
-use std::ptr::null;
+use std::ptr::null_mut;
 
 use zssp::crypto::{Sha512Hash, Sha512Hmac};
 use zssp::crypto_impl::openssl_sys as ffi;
@@ -150,69 +150,109 @@ impl Write for SHA384 {
 }
 unsafe impl Send for SHA384 {}
 
-extern "C" {
-    fn HMAC_CTX_new() -> *mut c_void;
-    fn HMAC_CTX_reset(ctx: *mut c_void) -> c_int;
-    fn HMAC_Init_ex(
-        ctx: *mut c_void,
-        key: *const c_void,
-        key_len: c_int,
-        evp_md: *const c_void,
-        _impl: *const c_void,
-    ) -> c_int;
-    fn HMAC_Update(ctx: *mut c_void, data: *const c_void, len: usize) -> c_int;
-    fn HMAC_Final(ctx: *mut c_void, output: *mut c_void, output_len: *mut c_uint) -> c_int;
-    fn HMAC_CTX_free(ctx: *mut c_void);
-    fn EVP_sha384() -> *const c_void;
-    fn EVP_sha512() -> *const c_void;
-}
+cfg_if::cfg_if! {
+    if #[cfg(stinkysll)] {
+        pub struct HMACSHA512 {
+            ctx: ffi::HMAC_CTX,
+            evp_md: *const ffi::EVP_MD,
+        }
+        impl HMACSHA512 {
+            #[inline(always)]
+            pub fn new(key: &[u8]) -> Self {
+                unsafe {
+                    let mut hm = Self { ctx: std::mem::zeroed(), evp_md: ffi::EVP_sha512() };
+                    ffi::HMAC_CTX_init(&mut hm.ctx);
+                    hm.reset(key);
+                    hm
+                }
+            }
 
-pub struct HMACSHA512 {
-    ctx: *mut c_void,
-    evp_md: *const c_void,
+            #[inline(always)]
+            pub fn reset(&mut self, key: &[u8]) {
+                unsafe {
+                    assert_ne!(
+                        ffi::HMAC_Init_ex(&mut self.ctx, key.as_ptr().cast(), key.len() as c_int, self.evp_md, null_mut()),
+                        0
+                    );
+                }
+            }
+            #[inline(always)]
+            pub fn update(&mut self, b: &[u8]) {
+                unsafe {
+                    assert_ne!(ffi::HMAC_Update(&mut self.ctx, b.as_ptr().cast(), b.len()), 0);
+                }
+            }
+
+            #[inline(always)]
+            pub fn finish_into(&mut self, md: &mut [u8]) {
+                unsafe {
+                    debug_assert_eq!(md.len(), HMAC_SHA512_SIZE);
+                    let mut mdlen = HMAC_SHA512_SIZE as c_uint;
+                    assert_ne!(ffi::HMAC_Final(&mut self.ctx, md.as_mut_ptr().cast(), &mut mdlen), 0);
+                    debug_assert_eq!(mdlen, HMAC_SHA512_SIZE as c_uint);
+                }
+            }
+        }
+        impl Drop for HMACSHA512 {
+            #[inline(always)]
+            fn drop(&mut self) {
+                unsafe { ffi::HMAC_CTX_cleanup(&mut self.ctx) };
+            }
+        }
+    } else {
+        pub struct HMACSHA512 {
+            ctx: *mut ffi::HMAC_CTX,
+            evp_md: *const ffi::EVP_MD,
+        }
+        impl HMACSHA512 {
+            #[inline(always)]
+            pub fn new(key: &[u8]) -> Self {
+                unsafe {
+                    let hm = Self { ctx: ffi::HMAC_CTX_new(), evp_md: ffi::EVP_sha512() };
+                    assert!(!hm.ctx.is_null());
+                    assert_ne!(
+                        ffi::HMAC_Init_ex(hm.ctx, key.as_ptr().cast(), key.len() as c_int, hm.evp_md, null_mut()),
+                        0
+                    );
+                    hm
+                }
+            }
+
+            #[inline(always)]
+            pub fn reset(&mut self, key: &[u8]) {
+                unsafe {
+                    assert_ne!(
+                        ffi::HMAC_Init_ex(self.ctx, key.as_ptr().cast(), key.len() as c_int, self.evp_md, null_mut()),
+                        0
+                    );
+                }
+            }
+            #[inline(always)]
+            pub fn update(&mut self, b: &[u8]) {
+                unsafe {
+                    assert_ne!(ffi::HMAC_Update(self.ctx, b.as_ptr().cast(), b.len()), 0);
+                }
+            }
+
+            #[inline(always)]
+            pub fn finish_into(&mut self, md: &mut [u8]) {
+                unsafe {
+                    debug_assert_eq!(md.len(), HMAC_SHA512_SIZE);
+                    let mut mdlen = HMAC_SHA512_SIZE as c_uint;
+                    assert_ne!(ffi::HMAC_Final(self.ctx, md.as_mut_ptr().cast(), &mut mdlen), 0);
+                    debug_assert_eq!(mdlen, HMAC_SHA512_SIZE as c_uint);
+                }
+            }
+        }
+        impl Drop for HMACSHA512 {
+            #[inline(always)]
+            fn drop(&mut self) {
+                unsafe { ffi::HMAC_CTX_free(self.ctx) };
+            }
+        }
+    }
 }
 impl HMACSHA512 {
-    #[inline(always)]
-    pub fn new(key: &[u8]) -> Self {
-        unsafe {
-            let hm = Self { ctx: HMAC_CTX_new(), evp_md: EVP_sha512() };
-            assert!(!hm.ctx.is_null());
-            assert_ne!(
-                HMAC_Init_ex(hm.ctx, key.as_ptr().cast(), key.len() as c_int, hm.evp_md, null()),
-                0
-            );
-            hm
-        }
-    }
-
-    #[inline(always)]
-    pub fn reset(&mut self, key: &[u8]) {
-        unsafe {
-            assert_ne!(HMAC_CTX_reset(self.ctx), 0);
-            assert_ne!(
-                HMAC_Init_ex(self.ctx, key.as_ptr().cast(), key.len() as c_int, self.evp_md, null()),
-                0
-            );
-        }
-    }
-
-    #[inline(always)]
-    pub fn update(&mut self, b: &[u8]) {
-        unsafe {
-            assert_ne!(HMAC_Update(self.ctx, b.as_ptr().cast(), b.len()), 0);
-        }
-    }
-
-    #[inline(always)]
-    pub fn finish_into(&mut self, md: &mut [u8]) {
-        unsafe {
-            debug_assert_eq!(md.len(), HMAC_SHA512_SIZE);
-            let mut mdlen = HMAC_SHA512_SIZE as c_uint;
-            assert_ne!(HMAC_Final(self.ctx, md.as_mut_ptr().cast(), &mut mdlen), 0);
-            debug_assert_eq!(mdlen, HMAC_SHA512_SIZE as c_uint);
-        }
-    }
-
     #[inline(always)]
     pub fn finish(&mut self) -> [u8; HMAC_SHA512_SIZE] {
         let mut tmp = [0u8; HMAC_SHA512_SIZE];
@@ -220,81 +260,7 @@ impl HMACSHA512 {
         tmp
     }
 }
-impl Drop for HMACSHA512 {
-    #[inline(always)]
-    fn drop(&mut self) {
-        unsafe { HMAC_CTX_free(self.ctx) };
-    }
-}
 unsafe impl Send for HMACSHA512 {}
-
-pub struct HMACSHA384 {
-    ctx: *mut c_void,
-    evp_md: *const c_void,
-}
-impl HMACSHA384 {
-    #[inline(always)]
-    pub fn new(key: &[u8]) -> Self {
-        unsafe {
-            let hm = Self { ctx: HMAC_CTX_new(), evp_md: EVP_sha384() };
-            assert!(!hm.ctx.is_null());
-            assert_ne!(
-                HMAC_Init_ex(hm.ctx, key.as_ptr().cast(), key.len() as c_int, hm.evp_md, null()),
-                0
-            );
-            hm
-        }
-    }
-
-    #[inline(always)]
-    pub fn reset(&mut self, key: &[u8]) {
-        unsafe {
-            assert_ne!(HMAC_CTX_reset(self.ctx), 0);
-            assert_ne!(
-                HMAC_Init_ex(self.ctx, key.as_ptr().cast(), key.len() as c_int, self.evp_md, null()),
-                0
-            );
-        }
-    }
-
-    #[inline(always)]
-    pub fn update(&mut self, b: &[u8]) {
-        unsafe {
-            assert_ne!(HMAC_Update(self.ctx, b.as_ptr().cast(), b.len()), 0);
-        }
-    }
-
-    #[inline(always)]
-    pub fn finish_into(&mut self, md: &mut [u8]) {
-        unsafe {
-            assert_eq!(md.len(), HMAC_SHA384_SIZE);
-            let mut mdlen = HMAC_SHA384_SIZE as c_uint;
-            assert_ne!(HMAC_Final(self.ctx, md.as_mut_ptr().cast(), &mut mdlen), 0);
-            assert_eq!(mdlen, HMAC_SHA384_SIZE as c_uint);
-        }
-    }
-
-    #[inline(always)]
-    pub fn finish(&mut self) -> [u8; HMAC_SHA384_SIZE] {
-        let mut tmp = [0u8; HMAC_SHA384_SIZE];
-        self.finish_into(&mut tmp);
-        tmp
-    }
-}
-impl Drop for HMACSHA384 {
-    #[inline(always)]
-    fn drop(&mut self) {
-        unsafe { HMAC_CTX_free(self.ctx) };
-    }
-}
-unsafe impl Send for HMACSHA384 {}
-
-#[inline(always)]
-pub fn hmac_sha384(key: &[u8], msg: &[u8]) -> [u8; HMAC_SHA384_SIZE] {
-    let mut hm = HMACSHA384::new(key);
-    hm.update(msg);
-    hm.finish()
-}
 
 /* Start of ZSSP Impl */
 

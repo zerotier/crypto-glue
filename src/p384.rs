@@ -129,7 +129,7 @@ impl P384PublicKey {
                 // Create the OpenSSL object that actually supports verification.
                 if let Ok(sig) = check_ptr(ffi::ECDSA_SIG_new()) {
                     cfg_if::cfg_if! {
-                        if #[cfg(no_get0set0)] {
+                        if #[cfg(stinkysll)] {
                             let sig_deref = sig.as_mut().unwrap();
                             if !sig_deref.r.is_null() {
                                 ffi::BN_free(sig_deref.r);
@@ -313,7 +313,7 @@ impl P384KeyPair {
             let mut r = ptr::null();
             let mut s = ptr::null();
             cfg_if::cfg_if! {
-                if #[cfg(no_get0set0)] {
+                if #[cfg(stinkysll)] {
                     let sig_deref = sig.as_ref().unwrap();
                     r = sig_deref.r;
                     s = sig_deref.s;

@@ -5,7 +5,7 @@ fn main() {
         let version = u64::from_str_radix(&v, 16).unwrap();
 
         if version < 0x1_01_00_00_0 {
-            println!("cargo:rustc-cfg=no_get0set0");
+            println!("cargo:rustc-cfg=stinkysll");
         }
     }
 }
