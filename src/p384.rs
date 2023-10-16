@@ -350,18 +350,18 @@ impl P384KeyPair {
     /// Perform ECDH key agreement, returning the raw (un-hashed!) ECDH secret.
     ///
     /// This secret should not be used directly. It should be hashed and perhaps used in a KDF.
-    pub fn agree(&self, other_public: &P384PublicKey, output: &mut [u8; P384_ECDH_SHARED_SECRET_SIZE]) -> bool {
+    pub fn agree(&self, other_public: &P384PublicKey, output: &mut [u8; P384_ECDH_SHARED_SECRET_SIZE]) {
         let keypair = self.pair.lock().unwrap();
         let other_key = other_public.key.lock().unwrap();
         unsafe {
             // Ask OpenSSL to perform DH between the keypair and the other key's public key object.
-            ECDH_compute_key(
+            assert_eq!(ECDH_compute_key(
                 output.as_mut_ptr(),
                 P384_ECDH_SHARED_SECRET_SIZE as c_ulong,
                 ffi::EC_KEY_get0_public_key(other_key.0),
                 keypair.0,
                 ptr::null(),
-            ) == P384_ECDH_SHARED_SECRET_SIZE as c_int
+            ), P384_ECDH_SHARED_SECRET_SIZE as c_int)
         }
     }
 }
@@ -495,7 +495,7 @@ impl<Rng: RngCore + CryptoRng> zssp::crypto::P384KeyPair<Rng> for P384KeyPair {
         *self.public_key_bytes()
     }
 
-    fn agree(&self, other_public: &P384PublicKey, output: &mut [u8; P384_ECDH_SHARED_SECRET_SIZE]) -> bool {
+    fn agree(&self, other_public: &P384PublicKey, output: &mut [u8; P384_ECDH_SHARED_SECRET_SIZE]) {
         self.agree(other_public, output)
     }
 }
@@ -527,8 +527,8 @@ mod tests {
 
         let mut sec0 = [0u8; P384_ECDH_SHARED_SECRET_SIZE];
         let mut sec1 = [0u8; P384_ECDH_SHARED_SECRET_SIZE];
-        assert!(kp.agree(&kp2_pub, &mut sec0));
-        assert!(kp2.agree(&kp_pub, &mut sec1));
+        kp.agree(&kp2_pub, &mut sec0);
+        kp2.agree(&kp_pub, &mut sec1);
         if !secure_eq(&sec0, &sec1) {
             panic!("ECDH secrets do not match");
         }
@@ -569,8 +569,8 @@ mod tests {
 
         let mut sec0 = [0u8; P384_ECDH_SHARED_SECRET_SIZE];
         let mut sec1 = [0u8; P384_ECDH_SHARED_SECRET_SIZE];
-        assert!(kp_fake.agree(&kp2_pub, &mut sec0));
-        assert!(kp2.agree(&kp_pub, &mut sec1));
+        kp_fake.agree(&kp2_pub, &mut sec0);
+        kp2.agree(&kp_pub, &mut sec1);
         if secure_eq(&sec0, &sec1) {
             panic!("Bad ECDH secrets match");
         }

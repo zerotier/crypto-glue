@@ -1,7 +1,6 @@
 /target
 /**/target
 /**/Cargo.lock
-
 .DS_*
 .Icon*
 ._*
@@ -13,3 +12,5 @@
 /.idea
 /.nova
 *.secret
+.vscode
+*.data
