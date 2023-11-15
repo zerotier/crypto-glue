@@ -70,15 +70,16 @@ pub struct P384PublicKey {
 unsafe impl Send for P384PublicKey {}
 unsafe impl Sync for P384PublicKey {}
 
-fn create_domain_restricted_digest(domain: &[u8], data: &[&[u8]]) -> [u8; SHA384_HASH_SIZE] {
+pub fn create_digest(domain: &[u8], data: &[&[u8]]) -> [u8; SHA384_HASH_SIZE] {
     debug_assert!(domain.len() <= u16::MAX as usize);
     let mut hasher = SHA384::new();
     for msg in data {
         hasher.update(msg);
     }
-    // We hash the domain last to mitigate some of the weaknesses of merkle-damgard.
-    if domain.len() > 0 {
+    // We hash the domain last to mitigate the weak design of merkle-damgard.
+    if !domain.is_empty() {
         hasher.update(domain);
+        // The size has to be included last to prevent truncation or extension of the domain string.
         hasher.update(&(domain.len() as u16).to_be_bytes());
     }
     hasher.finish()
@@ -106,9 +107,9 @@ impl P384PublicKey {
 
     /// Verify the ECDSA/SHA384 signature.
     ///
-    /// Domain strings are prepended to a message with their length and then signed along with the
+    /// Domain strings are appended to a message with their length and then signed along with the
     /// entire message.
-    /// This function will prepend nothing to the message and instead verify the message alone.
+    /// This function will append nothing to the message and instead verify the message alone.
     pub fn verify_raw(&self, message: &[u8], signature: &[u8; P384_ECDSA_SIGNATURE_SIZE]) -> bool {
         self.verify_all(&[], &[message], signature)
     }
@@ -140,7 +141,7 @@ impl P384PublicKey {
                             sig_deref.r = r.0;
                             sig_deref.s = s.0;
                         } else {
-                            assert!(ffi::ECDSA_SIG_set0(sig, r.0, s.0) == 1);
+                            assert_eq!(ffi::ECDSA_SIG_set0(sig, r.0, s.0), 1, "Call to OpenSSL did not obey the OpenSSL spec");
                         }
                     }
                     // For some reason this one random function, `ECDSA_SIG_set0`, takes
@@ -149,7 +150,7 @@ impl P384PublicKey {
                     mem::forget(r);
                     mem::forget(s);
                     // Digest the message.
-                    let digest = create_domain_restricted_digest(domain, data);
+                    let digest = create_digest(domain, data);
 
                     let key = self.key.lock().unwrap();
                     // Actually perform the verification.
@@ -198,10 +199,10 @@ impl P384KeyPair {
         unsafe {
             let pair = OSSLKey::new().unwrap();
             // Ask OpenSSL to securely generate the keypair.
-            check_gtz(ffi::EC_KEY_generate_key(pair.0)).unwrap();
+            check_gtz(ffi::EC_KEY_generate_key(pair.0)).expect("Call to OpenSSL did not obey the OpenSSL spec");
             // Read out the raw public key into a buffer.
             let public_key = ffi::EC_KEY_get0_public_key(pair.0);
-            let mut buffer = [0_u8; P384_PUBLIC_KEY_SIZE];
+            let mut buffer = [0u8; P384_PUBLIC_KEY_SIZE];
             let bnc = OSSLBNC::new().unwrap();
             assert!(
                 ffi::EC_POINT_point2oct(
@@ -211,7 +212,8 @@ impl P384KeyPair {
                     buffer.as_mut_ptr(),
                     P384_PUBLIC_KEY_SIZE,
                     bnc.0,
-                ) > 0
+                ) > 0,
+                "Call to OpenSSL did not obey the OpenSSL spec"
             );
             Self { pair: Mutex::new(pair), pub_bytes: buffer }
         }
@@ -253,18 +255,18 @@ impl P384KeyPair {
         &self.pub_bytes
     }
 
-    /// Clone the raw bytes that uniquely define the secret key.
-    /// They are wrapped in a container which will erase them on drop.
+    /// Write the raw bytes that uniquely define the secret key into `output`.
     ///
-    /// **Only write these to 100% trusted storage mediums. Avoid calling this function in general.**
+    /// **Only write this to 100% trusted storage mediums. Avoid calling this function in general.**
     pub fn secret_key_bytes(&self, output: &mut [u8; P384_SECRET_KEY_SIZE]) {
         unsafe {
             let keypair = self.pair.lock().unwrap();
             // Get a temporary handle to the private key.
             let ptr = ffi::EC_KEY_get0_private_key(keypair.0);
-            // Read the key's raw bytes out of OpenSSL.
-            let size = check_gteqz(ffi::BN_bn2bin(ptr, output.as_mut_ptr())).unwrap() as usize;
             drop(keypair);
+            // Read the key's raw bytes out of OpenSSL.
+            let size = check_gteqz(ffi::BN_bn2bin(ptr, output.as_mut_ptr()))
+                .expect("Call to OpenSSL did not obey the OpenSSL spec") as usize;
 
             // Double check big-endian-ness.
             output.copy_within(..size, P384_SECRET_KEY_SIZE - size);
@@ -273,11 +275,12 @@ impl P384KeyPair {
 
     /// Sign a message with ECDSA/SHA384 without any domain restriction.
     ///
-    /// Domain strings are prepended to a message with their length and then signed along with the
+    /// Domain strings are appended to a message with their length and then signed along with the
     /// entire message.
-    /// This function will prepend nothing to the message and instead sign the message alone.
-    /// It is not recommended to use this function unless this specific key was domain restricted
-    /// upon generation.
+    /// This function will append nothing to the message and instead sign the message alone.
+    ///
+    /// It is not recommended to use this function unless this specific key is domain restricted,
+    /// and for its entire lifetime will never be used for more than one purpose.
     pub fn sign_raw(&self, message: &[u8]) -> [u8; P384_ECDSA_SIGNATURE_SIZE] {
         self.sign_all(&[], &[message])
     }
@@ -301,13 +304,13 @@ impl P384KeyPair {
     /// purpose the signer did not intend.
     #[allow(unused_assignments)]
     pub fn sign_all(&self, domain: &[u8], data: &[&[u8]]) -> [u8; P384_ECDSA_SIGNATURE_SIZE] {
-        let digest = create_domain_restricted_digest(domain, data);
+        let digest = create_digest(domain, data);
         unsafe {
             let keypair = self.pair.lock().unwrap();
             // Actually create the signature with ECDSA.
             let sig = check_ptr(ffi::ECDSA_do_sign(digest.as_ptr(), digest.len() as c_int, keypair.0));
             drop(keypair);
-            let sig = sig.unwrap();
+            let sig = sig.expect("Call to OpenSSL did not obey the OpenSSL spec");
 
             // Get handles to the OpenSSL objects that actually support reading out into bytes.
             let mut r = ptr::null();
@@ -324,7 +327,7 @@ impl P384KeyPair {
 
             if r.is_null() || s.is_null() {
                 ffi::ECDSA_SIG_free(sig);
-                assert!(false);
+                panic!("Call to OpenSSL did not obey the OpenSSL spec");
             }
             // Determine the size of the buffers to guarantee sanity and big-endian-ness.
             let r_len = ((ffi::BN_num_bits(r) + 7) / 8) as usize;
@@ -332,10 +335,10 @@ impl P384KeyPair {
             const CAP: usize = P384_ECDSA_SIGNATURE_SIZE / 2;
             if !(r_len > 0 && s_len > 0 && r_len <= CAP && s_len <= CAP) {
                 ffi::ECDSA_SIG_free(sig);
-                assert!(false);
+                panic!("Call to OpenSSL did not obey the OpenSSL spec");
             }
 
-            let mut b = [0_u8; P384_ECDSA_SIGNATURE_SIZE];
+            let mut b = [0u8; P384_ECDSA_SIGNATURE_SIZE];
             // Read the signature's raw bytes out of OpenSSL.
             ffi::BN_bn2bin(r, b[(CAP - r_len)..CAP].as_mut_ptr());
             ffi::BN_bn2bin(
@@ -351,21 +354,22 @@ impl P384KeyPair {
     ///
     /// This secret should not be used directly. It should be hashed and perhaps used in a KDF.
     pub fn agree(&self, other_public: &P384PublicKey, output: &mut [u8; P384_ECDH_SHARED_SECRET_SIZE]) {
-        let keypair = self.pair.lock().unwrap();
-        let other_key = other_public.key.lock().unwrap();
-        unsafe {
+        let result = unsafe {
+            let keypair = self.pair.lock().unwrap();
+            let other_key = other_public.key.lock().unwrap();
             // Ask OpenSSL to perform DH between the keypair and the other key's public key object.
-            assert_eq!(
-                ECDH_compute_key(
-                    output.as_mut_ptr(),
-                    P384_ECDH_SHARED_SECRET_SIZE as c_ulong,
-                    ffi::EC_KEY_get0_public_key(other_key.0),
-                    keypair.0,
-                    ptr::null(),
-                ),
-                P384_ECDH_SHARED_SECRET_SIZE as c_int
+            ECDH_compute_key(
+                output.as_mut_ptr(),
+                P384_ECDH_SHARED_SECRET_SIZE as c_ulong,
+                ffi::EC_KEY_get0_public_key(other_key.0),
+                keypair.0,
+                ptr::null(),
             )
-        }
+        };
+        assert_eq!(
+            result, P384_ECDH_SHARED_SECRET_SIZE as c_int,
+            "Call to OpenSSL did not obey the OpenSSL spec"
+        )
     }
 }
 
@@ -520,8 +524,8 @@ mod tests {
         let kp_pub = kp.to_public_key();
         let kp2_pub = kp2.to_public_key();
 
-        let sig = kp.sign_raw(&[0_u8; 16]);
-        if !kp_pub.verify_raw(&[0_u8; 16], &sig) {
+        let sig = kp.sign_raw(&[0u8; 16]);
+        if !kp_pub.verify_raw(&[0u8; 16], &sig) {
             panic!("ECDSA verify failed");
         }
         if kp_pub.verify_raw(&[1_u8; 16], &sig) {
@@ -562,8 +566,8 @@ mod tests {
         let kp_pub = kp.to_public_key();
         let kp2_pub = kp2.to_public_key();
 
-        let sig = kp_fake.sign_raw(&[0_u8; 16]);
-        if kp_pub.verify_raw(&[0_u8; 16], &sig) {
+        let sig = kp_fake.sign_raw(&[0u8; 16]);
+        if kp_pub.verify_raw(&[0u8; 16], &sig) {
             panic!("ECDSA verify succeeded");
         }
         if kp_pub.verify_raw(&[1_u8; 16], &sig) {
@@ -593,7 +597,7 @@ mod tests {
         sigs[1][0] = 1;
         sigs[2][95] = 1;
         for sig in &sigs {
-            if kp_pub.verify_raw(&[0_u8; 16], sig) {
+            if kp_pub.verify_raw(&[0u8; 16], sig) {
                 panic!("ECDSA verify succeeded on fake sig");
             }
         }
