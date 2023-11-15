@@ -70,7 +70,7 @@ pub struct P384PublicKey {
 unsafe impl Send for P384PublicKey {}
 unsafe impl Sync for P384PublicKey {}
 
-fn create_digest(domain: &[u8], data: &[&[u8]]) -> [u8; SHA384_HASH_SIZE] {
+fn create_domain_restricted_digest(domain: &[u8], data: &[&[u8]]) -> [u8; SHA384_HASH_SIZE] {
     debug_assert!(domain.len() <= u16::MAX as usize);
     let mut hasher = SHA384::new();
     for msg in data {
@@ -149,7 +149,7 @@ impl P384PublicKey {
                     mem::forget(r);
                     mem::forget(s);
                     // Digest the message.
-                    let digest = create_digest(domain, data);
+                    let digest = create_domain_restricted_digest(domain, data);
 
                     let key = self.key.lock().unwrap();
                     // Actually perform the verification.
@@ -301,7 +301,7 @@ impl P384KeyPair {
     /// purpose the signer did not intend.
     #[allow(unused_assignments)]
     pub fn sign_all(&self, domain: &[u8], data: &[&[u8]]) -> [u8; P384_ECDSA_SIGNATURE_SIZE] {
-        let digest = create_digest(domain, data);
+        let digest = create_domain_restricted_digest(domain, data);
         unsafe {
             let keypair = self.pair.lock().unwrap();
             // Actually create the signature with ECDSA.
@@ -355,13 +355,16 @@ impl P384KeyPair {
         let other_key = other_public.key.lock().unwrap();
         unsafe {
             // Ask OpenSSL to perform DH between the keypair and the other key's public key object.
-            assert_eq!(ECDH_compute_key(
-                output.as_mut_ptr(),
-                P384_ECDH_SHARED_SECRET_SIZE as c_ulong,
-                ffi::EC_KEY_get0_public_key(other_key.0),
-                keypair.0,
-                ptr::null(),
-            ), P384_ECDH_SHARED_SECRET_SIZE as c_int)
+            assert_eq!(
+                ECDH_compute_key(
+                    output.as_mut_ptr(),
+                    P384_ECDH_SHARED_SECRET_SIZE as c_ulong,
+                    ffi::EC_KEY_get0_public_key(other_key.0),
+                    keypair.0,
+                    ptr::null(),
+                ),
+                P384_ECDH_SHARED_SECRET_SIZE as c_int
+            )
         }
     }
 }
