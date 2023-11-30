@@ -270,6 +270,9 @@ impl P384KeyPair {
 
             // Double check big-endian-ness.
             output.copy_within(..size, P384_SECRET_KEY_SIZE - size);
+            for i in 0..P384_SECRET_KEY_SIZE - size {
+                output[i] = 0x00;
+            }
         }
     }
 
