@@ -19,6 +19,18 @@ pub const ED25519_PUBLIC_KEY_SIZE: usize = 32;
 pub const ED25519_SECRET_KEY_SIZE: usize = 32;
 pub const ED25519_SIGNATURE_SIZE: usize = 64;
 
+fn create_domain_restricted_digest(domain: &[u8], data: &[u8]) -> ed25519_dalek::Sha512 {
+    debug_assert!(domain.len() <= u16::MAX as usize);
+    let mut hasher = ed25519_dalek::Sha512::new();
+    hasher.update(data);
+    // We hash the domain last to mitigate some of the weaknesses of merkle-damgard.
+    if domain.len() > 0 {
+        hasher.update(domain);
+        hasher.update(&(domain.len() as u16).to_be_bytes());
+    }
+    hasher
+}
+
 /// Curve25519 key pair for ECDH key agreement.
 #[derive(Clone)]
 pub struct X25519KeyPair(x25519_dalek::StaticSecret, x25519_dalek::PublicKey);
@@ -115,14 +127,23 @@ impl Ed25519KeyPair {
         *output = self.0.to_bytes();
     }
 
+    /// Sign a hash of the message (no domain parameter).
     pub fn sign(&self, msg: &[u8]) -> [u8; ED25519_SIGNATURE_SIZE] {
         let mut h = ed25519_dalek::Sha512::new();
         let _ = h.update(msg);
-        self.0.sign_prehashed(h.clone(), None).unwrap().to_bytes()
+        self.0.sign_prehashed(h, None).unwrap().to_bytes()
+    }
+
+    /// Sign a hash of the message that includes a domain parameter.
+    pub fn sign_domain_restricted(&self, domain: &[u8], msg: &[u8]) -> [u8; ED25519_SIGNATURE_SIZE] {
+        self.0
+            .sign_prehashed(create_domain_restricted_digest(domain, msg), None)
+            .unwrap()
+            .to_bytes()
     }
 
     /// Create a signature with the first 32 bytes of the SHA512 hash appended.
-    /// ZeroTier does this for legacy reasons, but it's ignored in newer versions.
+    /// This is for legacy ZeroTier V1 compatibility requirements. It's not used in newer code.
     pub fn sign_zt(&self, msg: &[u8]) -> [u8; 96] {
         let mut h = ed25519_dalek::Sha512::new();
         let _ = h.update(msg);
@@ -136,6 +157,7 @@ impl Ed25519KeyPair {
     }
 }
 
+/// Verify a non-domain-restricted signature.
 #[must_use]
 pub fn ed25519_verify(public_key: &[u8; ED25519_PUBLIC_KEY_SIZE], signature: &[u8], msg: &[u8]) -> bool {
     if signature.len() >= 64 {
@@ -145,6 +167,29 @@ pub fn ed25519_verify(public_key: &[u8; ED25519_PUBLIC_KEY_SIZE], signature: &[u
             let sig: [u8; 64] = signature[0..64].try_into().unwrap();
             pk.verify_prehashed(h, None, &ed25519_dalek::Signature::from(sig))
                 .is_ok()
+        })
+    } else {
+        false
+    }
+}
+
+/// Verify a domain restricted signature.
+#[must_use]
+pub fn ed25519_verify_domain_restricted(
+    public_key: &[u8; ED25519_PUBLIC_KEY_SIZE],
+    signature: &[u8],
+    domain: &[u8],
+    msg: &[u8],
+) -> bool {
+    if signature.len() >= 64 {
+        ed25519_dalek::VerifyingKey::from_bytes(public_key.try_into().unwrap()).map_or(false, |pk| {
+            let sig: [u8; 64] = signature[0..64].try_into().unwrap();
+            pk.verify_prehashed(
+                create_domain_restricted_digest(domain, msg),
+                None,
+                &ed25519_dalek::Signature::from(sig),
+            )
+            .is_ok()
         })
     } else {
         false
