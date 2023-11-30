@@ -336,7 +336,7 @@ impl P384KeyPair {
             let r_len = ((ffi::BN_num_bits(r) + 7) / 8) as usize;
             let s_len = ((ffi::BN_num_bits(s) + 7) / 8) as usize;
             const CAP: usize = P384_ECDSA_SIGNATURE_SIZE / 2;
-            if !(r_len > 0 && s_len > 0 && r_len <= CAP && s_len <= CAP) {
+            if !(r_len <= CAP && s_len <= CAP) {
                 ffi::ECDSA_SIG_free(sig);
                 panic!("Call to OpenSSL did not obey the OpenSSL spec");
             }
