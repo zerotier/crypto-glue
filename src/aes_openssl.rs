@@ -82,3 +82,9 @@ impl AesGcm<false> {
         unsafe { self.0.set_tag(expected_tag) && self.0.finalize::<false>() }
     }
 }
+
+// Send means that this can be sent between threads, but not used concurrently as that is Sync. This
+// should be safe as C and C++ do not even have this concept and always assume this to be the case,
+// and OpenSSL is designed to be used from C/C++ code. Failing to mark AesGcm<> as Send makes it very
+// hard to near impossible to use in async code since !Send infects futures and tasks.
+unsafe impl<const ENCRYPT: bool> Send for AesGcm<ENCRYPT> {}
