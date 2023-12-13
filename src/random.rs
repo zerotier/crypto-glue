@@ -94,6 +94,14 @@ impl XorshiftRandom {
         state.jump();
         ret
     }
+
+    #[cfg(test)]
+    pub fn set_test_seed(&self, seed: u64) {
+        use std::ops::DerefMut;
+
+        let mut state = GLOBAL_XORSHIFT.lock().unwrap();
+        *Lazy::force_mut(state.deref_mut()) = Xoshiro256StarStar::seed_from_u64(seed);
+    }
 }
 impl RngCore for XorshiftRandom {
     fn next_u32(&mut self) -> u32 {
