@@ -95,7 +95,6 @@ impl XorshiftRandom {
         ret
     }
 
-    #[cfg(test)]
     pub fn set_test_seed(&self, seed: u64) {
         use std::ops::DerefMut;
 
