@@ -16,140 +16,106 @@ use zssp::crypto::{Sha512Hash, Sha512Hmac};
 use zssp::crypto_impl::openssl_sys as ffi;
 
 pub const SHA512_HASH_SIZE: usize = 64;
-pub const HMAC_SHA512_SIZE: usize = 64;
 pub const SHA384_HASH_SIZE: usize = 48;
+pub const SHA256_HASH_SIZE: usize = 32;
+pub const HMAC_SHA512_SIZE: usize = 64;
 pub const HMAC_SHA384_SIZE: usize = 48;
 pub const HMAC_SHA256_SIZE: usize = 32;
 
-pub struct SHA512(ffi::SHA512_CTX);
-impl SHA512 {
-    #[inline(always)]
-    pub fn hash(data: &[u8]) -> [u8; SHA512_HASH_SIZE] {
-        unsafe {
-            let mut hash = MaybeUninit::<[u8; SHA512_HASH_SIZE]>::uninit();
-            ffi::SHA512(data.as_ptr(), data.len(), hash.as_mut_ptr() as *mut _);
-            hash.assume_init()
-        }
-    }
+macro_rules! SHA_impl {
+    ($tn:ident, $len:ident, $ctx:ident, $init:ident, $update:ident, $final:ident) => {
+        pub struct $tn(ffi::$ctx);
+        impl $tn {
+            #[inline(always)]
+            pub fn hash(data: &[u8]) -> [u8; $len] {
+                unsafe {
+                    let mut hash = MaybeUninit::<[u8; $len]>::uninit();
+                    ffi::$tn(data.as_ptr(), data.len(), hash.as_mut_ptr() as *mut _);
+                    hash.assume_init()
+                }
+            }
 
-    /// Creates a new hasher.
-    #[inline(always)]
-    pub fn new() -> Self {
-        unsafe {
-            let mut ctx = MaybeUninit::uninit();
-            ffi::SHA512_Init(ctx.as_mut_ptr());
-            SHA512(ctx.assume_init())
-        }
-    }
+            /// Creates a new hasher.
+            #[inline(always)]
+            pub fn new() -> Self {
+                unsafe {
+                    let mut ctx = MaybeUninit::uninit();
+                    ffi::$init(ctx.as_mut_ptr());
+                    $tn(ctx.assume_init())
+                }
+            }
 
-    #[inline(always)]
-    pub fn reset(&mut self) {
-        unsafe { ffi::SHA512_Init(&mut self.0) };
-    }
+            #[inline(always)]
+            pub fn reset(&mut self) {
+                unsafe { ffi::$init(&mut self.0) };
+            }
 
-    /// Feeds some data into the hasher.
-    ///
-    /// This can be called multiple times.
-    #[inline(always)]
-    pub fn update(&mut self, buf: &[u8]) {
-        unsafe {
-            ffi::SHA512_Update(&mut self.0, buf.as_ptr() as *const c_void, buf.len());
-        }
-    }
+            /// Feeds some data into the hasher.
+            ///
+            /// This can be called multiple times.
+            #[inline(always)]
+            pub fn update(&mut self, buf: &[u8]) {
+                unsafe {
+                    ffi::$update(&mut self.0, buf.as_ptr() as *const c_void, buf.len());
+                }
+            }
 
-    /// Returns the hash of the data.
-    #[inline(always)]
-    pub fn finish(&mut self) -> [u8; SHA512_HASH_SIZE] {
-        unsafe {
-            let mut hash = MaybeUninit::<[u8; SHA512_HASH_SIZE]>::uninit();
-            ffi::SHA512_Final(hash.as_mut_ptr() as *mut _, &mut self.0);
-            hash.assume_init()
-        }
-    }
+            /// Returns the hash of the data.
+            #[inline(always)]
+            pub fn finish(&mut self) -> [u8; $len] {
+                unsafe {
+                    let mut hash = MaybeUninit::<[u8; $len]>::uninit();
+                    ffi::$final(hash.as_mut_ptr() as *mut _, &mut self.0);
+                    hash.assume_init()
+                }
+            }
 
-    pub fn finish_into(&mut self, output: &mut [u8; SHA512_HASH_SIZE]) {
-        unsafe {
-            ffi::SHA512_Final(output.as_mut_ptr() as *mut _, &mut self.0);
+            pub fn finish_into(&mut self, output: &mut [u8; $len]) {
+                unsafe {
+                    ffi::$final(output.as_mut_ptr() as *mut _, &mut self.0);
+                }
+            }
         }
-    }
+        impl Write for $tn {
+            #[inline(always)]
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.update(b);
+                Ok(b.len())
+            }
+
+            #[inline(always)]
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        unsafe impl Send for $tn {}
+    };
 }
-impl Write for SHA512 {
-    #[inline(always)]
-    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-        self.update(b);
-        Ok(b.len())
-    }
 
-    #[inline(always)]
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-unsafe impl Send for SHA512 {}
-
-pub struct SHA384(ffi::SHA512_CTX);
-impl SHA384 {
-    #[inline(always)]
-    pub fn hash(data: &[u8]) -> [u8; SHA384_HASH_SIZE] {
-        unsafe {
-            let mut hash = MaybeUninit::<[u8; SHA384_HASH_SIZE]>::uninit();
-            ffi::SHA384(data.as_ptr(), data.len(), hash.as_mut_ptr() as *mut _);
-            hash.assume_init()
-        }
-    }
-
-    #[inline(always)]
-    pub fn new() -> Self {
-        unsafe {
-            let mut ctx = MaybeUninit::uninit();
-            ffi::SHA384_Init(ctx.as_mut_ptr());
-            SHA384(ctx.assume_init())
-        }
-    }
-
-    #[inline(always)]
-    pub fn reset(&mut self) {
-        unsafe {
-            ffi::SHA384_Init(&mut self.0);
-        }
-    }
-
-    #[inline(always)]
-    pub fn update(&mut self, buf: &[u8]) {
-        unsafe {
-            ffi::SHA384_Update(&mut self.0, buf.as_ptr() as *const c_void, buf.len());
-        }
-    }
-
-    #[inline(always)]
-    pub fn finish(&mut self) -> [u8; SHA384_HASH_SIZE] {
-        unsafe {
-            let mut hash = MaybeUninit::<[u8; SHA384_HASH_SIZE]>::uninit();
-            ffi::SHA384_Final(hash.as_mut_ptr() as *mut _, &mut self.0);
-            hash.assume_init()
-        }
-    }
-
-    #[inline(always)]
-    pub fn finish_into(&mut self, output: &mut [u8; SHA512_HASH_SIZE]) {
-        unsafe {
-            ffi::SHA384_Final(output.as_mut_ptr() as *mut _, &mut self.0);
-        }
-    }
-}
-impl Write for SHA384 {
-    #[inline(always)]
-    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-        self.update(b);
-        Ok(b.len())
-    }
-
-    #[inline(always)]
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-unsafe impl Send for SHA384 {}
+SHA_impl!(
+    SHA512,
+    SHA512_HASH_SIZE,
+    SHA512_CTX,
+    SHA512_Init,
+    SHA512_Update,
+    SHA512_Final
+);
+SHA_impl!(
+    SHA384,
+    SHA384_HASH_SIZE,
+    SHA512_CTX,
+    SHA384_Init,
+    SHA384_Update,
+    SHA384_Final
+);
+SHA_impl!(
+    SHA256,
+    SHA256_HASH_SIZE,
+    SHA256_CTX,
+    SHA256_Init,
+    SHA256_Update,
+    SHA256_Final
+);
 
 macro_rules! impl_hmac {
     ($tn:ident, $evp:ident, $size:ident, $test:ident, $h1:literal, $h2:literal) => {
